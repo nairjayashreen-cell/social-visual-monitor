@@ -18,11 +18,9 @@ AI-powered ORM monitoring dashboard for:
 
 ### Backend
 
-```bash
-pip install -r requirements.txt
-uvicorn main:app --reload
-```
+python -m venv venv
 
+source venv/bin/activate
 ### Frontend
 
 Open:
