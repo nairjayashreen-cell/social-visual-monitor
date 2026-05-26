@@ -7,43 +7,102 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>
-AI Visual Brand Monitoring
+AiPlex ORM - AI Visual Threat Monitoring
 </title>
 
 <script src="https://cdn.tailwindcss.com"></script>
 
+<link
+href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+rel="stylesheet"
+/>
+
 <style>
 
+:root{
+--bg:#050816;
+--card:#0b1120;
+--accent:#00c2ff;
+--accent-soft:#38bdf8;
+--border:rgba(0,194,255,.12);
+--glow:rgba(0,194,255,.15);
+--text:#ffffff;
+--muted:#94a3b8;
+--critical:#ef4444;
+--high:#f97316;
+--medium:#eab308;
+--success:#10b981;
+}
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+}
+
 body{
-background:#020617;
-color:white;
-font-family:Inter,sans-serif;
+background:var(--bg);
+color:var(--text);
+font-family:'Inter',sans-serif;
 overflow-x:hidden;
+min-height:100vh;
+}
+
+.grid-bg{
+position:fixed;
+inset:0;
+background-image:
+linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px),
+linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px);
+background-size:40px 40px;
+z-index:-2;
+}
+
+.glow-orb{
+position:fixed;
+width:500px;
+height:500px;
+background:radial-gradient(circle,var(--glow),transparent 70%);
+filter:blur(60px);
+z-index:-1;
+opacity:.6;
+}
+
+.glow-1{
+top:-150px;
+right:-100px;
+}
+
+.glow-2{
+bottom:-150px;
+left:-100px;
 }
 
 .glass{
-background:linear-gradient(135deg,rgba(15,23,42,.92),rgba(17,24,39,.88));
-border:1px solid rgba(14,165,233,.15);
+background:linear-gradient(
+135deg,
+rgba(8,15,30,.96),
+rgba(12,20,38,.92)
+);
+
+border:1px solid var(--border);
+
 backdrop-filter:blur(18px);
-box-shadow:0 0 40px rgba(14,165,233,.08);
-}
 
-.glow{
-box-shadow:0 0 30px rgba(56,189,248,.25);
-}
-
-.pipeline-card{
-transition:all .4s ease;
-}
-
-.pipeline-card:hover{
-transform:translateY(-6px);
-box-shadow:0 0 30px rgba(56,189,248,.2);
+box-shadow:
+0 0 40px rgba(0,194,255,.08),
+inset 0 1px 0 rgba(255,255,255,.03);
 }
 
 .metric-card{
 position:relative;
 overflow:hidden;
+transition:.4s;
+}
+
+.metric-card:hover{
+transform:translateY(-6px);
+box-shadow:0 0 40px rgba(0,194,255,.18);
 }
 
 .metric-card::before{
@@ -56,22 +115,51 @@ height:100%;
 background:linear-gradient(
 90deg,
 transparent,
-rgba(255,255,255,.08),
+rgba(255,255,255,.05),
 transparent
 );
-transition:.6s;
+transition:.8s;
 }
 
 .metric-card:hover::before{
 left:100%;
 }
 
+.pipeline-card{
+transition:.4s;
+position:relative;
+overflow:hidden;
+}
+
+.pipeline-card:hover{
+transform:translateY(-5px);
+border-color:rgba(0,194,255,.35);
+}
+
+.pipeline-card::after{
+content:'';
+position:absolute;
+inset:0;
+background:linear-gradient(
+135deg,
+transparent,
+rgba(0,194,255,.04)
+);
+pointer-events:none;
+}
+
 .asset-preview img{
-height:90px;
 width:90px;
+height:90px;
 object-fit:cover;
-border-radius:16px;
+border-radius:18px;
 border:1px solid rgba(255,255,255,.08);
+transition:.3s;
+}
+
+.asset-preview img:hover{
+transform:scale(1.05);
+border-color:var(--accent);
 }
 
 .threat-row{
@@ -79,7 +167,42 @@ transition:.3s;
 }
 
 .threat-row:hover{
-background:rgba(15,23,42,.7);
+background:rgba(255,255,255,.02);
+}
+
+.custom-input{
+background:rgba(255,255,255,.02);
+border:1px solid rgba(255,255,255,.08);
+transition:.3s;
+}
+
+.custom-input:focus{
+outline:none;
+border-color:var(--accent);
+box-shadow:0 0 0 4px rgba(0,194,255,.08);
+}
+
+.primary-btn{
+background:linear-gradient(
+90deg,
+#00c2ff,
+#0099ff
+);
+
+transition:.4s;
+}
+
+.primary-btn:hover{
+transform:translateY(-2px);
+box-shadow:0 0 30px rgba(0,194,255,.25);
+}
+
+.export-btn{
+transition:.3s;
+}
+
+.export-btn:hover{
+transform:translateY(-2px);
 }
 
 .scrollbar::-webkit-scrollbar{
@@ -87,18 +210,32 @@ height:8px;
 }
 
 .scrollbar::-webkit-scrollbar-thumb{
-background:#0ea5e9;
-border-radius:10px;
+background:#00c2ff;
+border-radius:20px;
 }
 
-.grid-bg{
-position:fixed;
-inset:0;
-background-image:
-linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px),
-linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px);
-background-size:40px 40px;
-z-index:-1;
+.status-dot{
+width:10px;
+height:10px;
+border-radius:50%;
+background:#10b981;
+box-shadow:0 0 15px #10b981;
+animation:pulse 1.5s infinite;
+}
+
+@keyframes pulse{
+0%{opacity:1;}
+50%{opacity:.5;}
+100%{opacity:1;}
+}
+
+.table-link{
+font-weight:600;
+transition:.3s;
+}
+
+.table-link:hover{
+opacity:.8;
 }
 
 </style>
@@ -109,27 +246,44 @@ z-index:-1;
 
 <div class="grid-bg"></div>
 
+<div class="glow-orb glow-1"></div>
+<div class="glow-orb glow-2"></div>
+
 <div class="max-w-7xl mx-auto">
 
-<div class="flex items-center justify-between mb-10">
+<div class="flex justify-between items-center mb-12">
 
 <div>
 
-<h1 class="text-6xl font-black text-cyan-400 mb-3">
+<p class="text-cyan-400 font-semibold tracking-[4px] uppercase mb-3">
+AiPlex ORM Intelligence
+</p>
+
+<h1 class="text-6xl font-black mb-4 leading-tight">
 AI Visual Threat Monitoring
 </h1>
 
 <p class="text-slate-400 text-xl">
-Enterprise ORM Intelligence Platform
+Enterprise Reputation Intelligence Platform
 </p>
 
 </div>
 
-<div class="glass rounded-2xl px-6 py-4 glow">
+<div class="glass rounded-2xl px-6 py-5 flex items-center gap-4">
+
+<div class="status-dot"></div>
+
+<div>
 
 <p class="text-cyan-300 font-semibold">
-AI Monitoring Active
+Monitoring Active
 </p>
+
+<p class="text-slate-400 text-sm">
+Instagram • Facebook • LinkedIn
+</p>
+
+</div>
 
 </div>
 
@@ -200,19 +354,19 @@ type="file"
 id="logoUpload"
 multiple
 accept="image/*"
-class="w-full bg-black/40 border border-slate-700 rounded-2xl p-4 mb-4"
+class="custom-input w-full rounded-2xl p-4 mb-4"
 />
 
 <input
 type="text"
 id="imageUrl"
 placeholder="Paste logo or creative URL"
-class="w-full bg-black/40 border border-slate-700 rounded-2xl p-4 mb-4"
+class="custom-input w-full rounded-2xl p-4 mb-4"
 />
 
 <button
 onclick="addImageUrl()"
-class="bg-gradient-to-r from-cyan-400 to-blue-500 px-6 py-4 rounded-2xl font-bold text-black w-full"
+class="primary-btn px-6 py-4 rounded-2xl font-bold text-black w-full"
 >
 Add Reference Asset
 </button>
@@ -227,7 +381,7 @@ Fraud Intelligence Keywords
 
 <textarea
 rows="10"
-class="w-full bg-black/40 border border-slate-700 rounded-2xl p-4"
+class="custom-input w-full rounded-2xl p-4"
 >
 telegram
 vip group
@@ -272,7 +426,7 @@ LinkedIn
 
 <button
 onclick="startScan()"
-class="bg-gradient-to-r from-cyan-400 to-purple-500 px-8 py-5 rounded-2xl text-xl font-black w-full"
+class="primary-btn px-8 py-5 rounded-2xl text-xl font-black w-full text-black"
 >
 Start Threat Scan
 </button>
@@ -287,13 +441,17 @@ Start Threat Scan
 
 <div class="flex justify-between items-center mb-6">
 
-<h2 class="text-3xl font-black text-cyan-300">
+<div>
+
+<h2 class="text-3xl font-black text-cyan-300 mb-2">
 Reference Asset Library
 </h2>
 
 <p class="text-slate-400">
-Multi-client asset intelligence
+Multi-client visual asset intelligence
 </p>
+
+</div>
 
 </div>
 
@@ -306,27 +464,19 @@ class="flex flex-wrap gap-4 asset-preview"
 
 <div class="glass rounded-[32px] p-8 mb-10">
 
-<div class="flex justify-between items-center mb-8">
-
-<div>
-
-<h2 class="text-5xl font-black mb-2">
+<h2 class="text-5xl font-black mb-3">
 Detection Pipeline
 </h2>
 
-<p class="text-slate-400 text-xl">
+<p class="text-slate-400 text-xl mb-10">
 AI-powered visual ORM workflow
 </p>
-
-</div>
-
-</div>
 
 <div class="grid md:grid-cols-5 gap-6">
 
 <div class="pipeline-card glass rounded-3xl p-6">
 
-<div class="text-5xl mb-4">
+<div class="text-5xl mb-4 text-cyan-400">
 ①
 </div>
 
@@ -342,7 +492,7 @@ Instagram / Facebook / LinkedIn
 
 <div class="pipeline-card glass rounded-3xl p-6">
 
-<div class="text-5xl mb-4">
+<div class="text-5xl mb-4 text-cyan-400">
 ②
 </div>
 
@@ -358,7 +508,7 @@ Images / Reels / Creatives
 
 <div class="pipeline-card glass rounded-3xl p-6">
 
-<div class="text-5xl mb-4">
+<div class="text-5xl mb-4 text-cyan-400">
 ③
 </div>
 
@@ -374,7 +524,7 @@ Visual similarity detection
 
 <div class="pipeline-card glass rounded-3xl p-6">
 
-<div class="text-5xl mb-4">
+<div class="text-5xl mb-4 text-cyan-400">
 ④
 </div>
 
@@ -390,7 +540,7 @@ Threat intelligence analysis
 
 <div class="pipeline-card glass rounded-3xl p-6">
 
-<div class="text-5xl mb-4">
+<div class="text-5xl mb-4 text-cyan-400">
 ⑤
 </div>
 
@@ -408,16 +558,16 @@ CSV / XLSX intelligence
 
 </div>
 
-<div class="flex gap-4 mb-6">
+<div class="flex gap-4 mb-8">
 
 <button
-class="bg-emerald-500 px-8 py-4 rounded-2xl text-black font-bold"
+class="export-btn bg-emerald-500 px-8 py-4 rounded-2xl text-black font-bold"
 >
 Export CSV
 </button>
 
 <button
-class="bg-yellow-500 px-8 py-4 rounded-2xl text-black font-bold"
+class="export-btn bg-yellow-500 px-8 py-4 rounded-2xl text-black font-bold"
 >
 Export XLSX
 </button>
@@ -532,7 +682,7 @@ return `
 <a
 href="${url}"
 target="_blank"
-class="text-pink-400 hover:text-pink-300"
+class="table-link text-pink-400"
 >
 Open Instagram Post
 </a>
@@ -545,7 +695,7 @@ return `
 <a
 href="${url}"
 target="_blank"
-class="text-blue-400 hover:text-blue-300"
+class="table-link text-blue-400"
 >
 Open Facebook Post
 </a>
@@ -558,7 +708,7 @@ return `
 <a
 href="${url}"
 target="_blank"
-class="text-cyan-400 hover:text-cyan-300"
+class="table-link text-cyan-400"
 >
 Open LinkedIn Post
 </a>
@@ -574,12 +724,14 @@ function startScan(){
 const tbody =
 document.getElementById('resultsBody')
 
+tbody.innerHTML = ''
+
 const demoResults = [
 
 {
 platform:'Instagram',
 username:'trading_master',
-url:'https://www.instagram.com/',
+url:'https://www.instagram.com/p/C9abc123xyz/',
 brand:'Zerodha',
 score:'94%',
 risk:'Critical',
@@ -589,7 +741,7 @@ ocr:'Join VIP Telegram Group'
 {
 platform:'Facebook',
 username:'stocksignalsindia',
-url:'https://www.facebook.com/',
+url:'https://www.facebook.com/stocksignalsindia/posts/1029384756',
 brand:'Groww',
 score:'89%',
 risk:'High',
@@ -599,7 +751,7 @@ ocr:'Guaranteed Returns'
 {
 platform:'LinkedIn',
 username:'Market Insights',
-url:'https://www.linkedin.com/',
+url:'https://www.linkedin.com/feed/update/urn:li:activity:734567890/',
 brand:'ICICI Direct',
 score:'91%',
 risk:'Medium',
@@ -610,14 +762,17 @@ ocr:'Premium Signals Group'
 
 demoResults.forEach(result=>{
 
-let riskClass = 'bg-yellow-500/20 text-yellow-300'
+let riskClass =
+'bg-yellow-500/20 text-yellow-300'
 
 if(result.risk === 'Critical'){
-riskClass = 'bg-red-500/20 text-red-300'
+riskClass =
+'bg-red-500/20 text-red-300'
 }
 
 if(result.risk === 'High'){
-riskClass = 'bg-orange-500/20 text-orange-300'
+riskClass =
+'bg-orange-500/20 text-orange-300'
 }
 
 tbody.innerHTML += `
