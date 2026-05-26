@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 
@@ -18,40 +17,88 @@ AI Visual Brand Monitoring
 body{
 background:#020617;
 color:white;
-font-family:Arial,sans-serif;
+font-family:Inter,sans-serif;
+overflow-x:hidden;
 }
 
 .glass{
-background:linear-gradient(135deg,#0f172a,#111827);
-border:1px solid rgba(59,130,246,0.2);
-backdrop-filter:blur(12px);
+background:linear-gradient(135deg,rgba(15,23,42,.92),rgba(17,24,39,.88));
+border:1px solid rgba(14,165,233,.15);
+backdrop-filter:blur(18px);
+box-shadow:0 0 40px rgba(14,165,233,.08);
+}
+
+.glow{
+box-shadow:0 0 30px rgba(56,189,248,.25);
 }
 
 .pipeline-card{
 transition:all .4s ease;
 }
 
-.pipeline-waiting{
-background:rgba(30,41,59,.7);
-opacity:.7;
+.pipeline-card:hover{
+transform:translateY(-6px);
+box-shadow:0 0 30px rgba(56,189,248,.2);
 }
 
-.pipeline-active{
-background:linear-gradient(135deg,#0891b2,#2563eb);
-box-shadow:0 0 40px rgba(34,211,238,.5);
-transform:translateY(-4px);
+.metric-card{
+position:relative;
+overflow:hidden;
 }
 
-.pipeline-complete{
-background:linear-gradient(135deg,#059669,#10b981);
+.metric-card::before{
+content:'';
+position:absolute;
+top:0;
+left:-100%;
+width:100%;
+height:100%;
+background:linear-gradient(
+90deg,
+transparent,
+rgba(255,255,255,.08),
+transparent
+);
+transition:.6s;
+}
+
+.metric-card:hover::before{
+left:100%;
 }
 
 .asset-preview img{
-height:80px;
-width:80px;
+height:90px;
+width:90px;
 object-fit:cover;
-border-radius:12px;
-border:1px solid rgba(255,255,255,.1);
+border-radius:16px;
+border:1px solid rgba(255,255,255,.08);
+}
+
+.threat-row{
+transition:.3s;
+}
+
+.threat-row:hover{
+background:rgba(15,23,42,.7);
+}
+
+.scrollbar::-webkit-scrollbar{
+height:8px;
+}
+
+.scrollbar::-webkit-scrollbar-thumb{
+background:#0ea5e9;
+border-radius:10px;
+}
+
+.grid-bg{
+position:fixed;
+inset:0;
+background-image:
+linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px),
+linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px);
+background-size:40px 40px;
+z-index:-1;
 }
 
 </style>
@@ -60,28 +107,92 @@ border:1px solid rgba(255,255,255,.1);
 
 <body class="p-6">
 
+<div class="grid-bg"></div>
+
 <div class="max-w-7xl mx-auto">
 
-<h1 class="text-5xl font-black text-cyan-400 mb-2">
-AI Visual Brand Monitoring
+<div class="flex items-center justify-between mb-10">
+
+<div>
+
+<h1 class="text-6xl font-black text-cyan-400 mb-3">
+AI Visual Threat Monitoring
 </h1>
 
-<p class="text-slate-400 mb-8">
-Enterprise ORM Intelligence Dashboard
+<p class="text-slate-400 text-xl">
+Enterprise ORM Intelligence Platform
 </p>
 
-<div class="glass rounded-2xl p-4 mb-6 border border-cyan-500/20">
-<p class="text-cyan-300 text-sm">
-Multi Client Visual Monitoring System Enabled
+</div>
+
+<div class="glass rounded-2xl px-6 py-4 glow">
+
+<p class="text-cyan-300 font-semibold">
+AI Monitoring Active
 </p>
+
+</div>
+
+</div>
+
+<div class="grid md:grid-cols-4 gap-6 mb-10">
+
+<div class="glass metric-card rounded-3xl p-6">
+
+<p class="text-slate-400">
+Threat Detections
+</p>
+
+<h2 class="text-5xl font-black mt-3 text-cyan-400">
+128
+</h2>
+
+</div>
+
+<div class="glass metric-card rounded-3xl p-6">
+
+<p class="text-slate-400">
+Critical Violations
+</p>
+
+<h2 class="text-5xl font-black mt-3 text-red-400">
+14
+</h2>
+
+</div>
+
+<div class="glass metric-card rounded-3xl p-6">
+
+<p class="text-slate-400">
+Platforms Monitored
+</p>
+
+<h2 class="text-5xl font-black mt-3 text-blue-400">
+3
+</h2>
+
+</div>
+
+<div class="glass metric-card rounded-3xl p-6">
+
+<p class="text-slate-400">
+AI Match Accuracy
+</p>
+
+<h2 class="text-5xl font-black mt-3 text-emerald-400">
+94%
+</h2>
+
+</div>
+
 </div>
 
 <div class="grid md:grid-cols-3 gap-6 mb-8">
 
 <div class="glass rounded-3xl p-6">
 
-<h2 class="text-2xl font-bold mb-4">
-Reference Asset Upload
+<h2 class="text-2xl font-bold mb-5 text-cyan-300">
+Reference Asset Vault
 </h2>
 
 <input
@@ -89,55 +200,56 @@ type="file"
 id="logoUpload"
 multiple
 accept="image/*"
-class="w-full bg-black border border-slate-700 rounded-2xl p-4 mb-4"
+class="w-full bg-black/40 border border-slate-700 rounded-2xl p-4 mb-4"
 />
 
 <input
 type="text"
 id="imageUrl"
-placeholder="Paste image/logo URL"
-class="w-full bg-black border border-slate-700 rounded-2xl p-4 mb-4"
+placeholder="Paste logo or creative URL"
+class="w-full bg-black/40 border border-slate-700 rounded-2xl p-4 mb-4"
 />
 
 <button
 onclick="addImageUrl()"
-class="bg-cyan-500 px-6 py-3 rounded-xl font-bold text-black w-full"
+class="bg-gradient-to-r from-cyan-400 to-blue-500 px-6 py-4 rounded-2xl font-bold text-black w-full"
 >
-Add Asset URL
+Add Reference Asset
 </button>
 
 </div>
 
 <div class="glass rounded-3xl p-6">
 
-<h2 class="text-2xl font-bold mb-4">
-Fraud Keywords
+<h2 class="text-2xl font-bold mb-5 text-cyan-300">
+Fraud Intelligence Keywords
 </h2>
 
 <textarea
-id="keywords"
 rows="10"
-class="w-full bg-black border border-slate-700 rounded-2xl p-4"
+class="w-full bg-black/40 border border-slate-700 rounded-2xl p-4"
 >
 telegram
 vip group
 guaranteed returns
-join now
-stock tips
-multibagger
 premium signals
+join now
+multibagger
 whatsapp group
+stock tips
+bank nifty calls
+sure shot
 </textarea>
 
 </div>
 
 <div class="glass rounded-3xl p-6">
 
-<h2 class="text-2xl font-bold mb-4">
-Platforms
+<h2 class="text-2xl font-bold mb-5 text-cyan-300">
+Monitoring Platforms
 </h2>
 
-<div class="space-y-4">
+<div class="space-y-5 text-lg">
 
 <label class="flex items-center gap-3">
 <input type="checkbox" checked>
@@ -156,15 +268,34 @@ LinkedIn
 
 </div>
 
+<div class="mt-10">
+
+<button
+onclick="startScan()"
+class="bg-gradient-to-r from-cyan-400 to-purple-500 px-8 py-5 rounded-2xl text-xl font-black w-full"
+>
+Start Threat Scan
+</button>
+
+</div>
+
 </div>
 
 </div>
 
-<div class="glass rounded-3xl p-6 mb-8">
+<div class="glass rounded-3xl p-6 mb-10">
 
-<h2 class="text-2xl font-bold mb-4">
+<div class="flex justify-between items-center mb-6">
+
+<h2 class="text-3xl font-black text-cyan-300">
 Reference Asset Library
 </h2>
+
+<p class="text-slate-400">
+Multi-client asset intelligence
+</p>
+
+</div>
 
 <div
 id="assetPreview"
@@ -183,51 +314,94 @@ class="flex flex-wrap gap-4 asset-preview"
 Detection Pipeline
 </h2>
 
-<p class="text-slate-400 text-2xl">
+<p class="text-slate-400 text-xl">
 AI-powered visual ORM workflow
 </p>
 
 </div>
 
-<button
-onclick="startScan()"
-class="bg-gradient-to-r from-cyan-400 to-purple-500 px-10 py-5 rounded-2xl text-2xl font-bold"
->
-Start Monitoring
-</button>
-
 </div>
 
 <div class="grid md:grid-cols-5 gap-6">
 
-<div class="pipeline-card pipeline-active rounded-3xl p-6">
-<div class="text-5xl mb-4">①</div>
-<h3 class="text-2xl font-bold">Collect Posts</h3>
-<p>Instagram/Facebook/LinkedIn</p>
+<div class="pipeline-card glass rounded-3xl p-6">
+
+<div class="text-5xl mb-4">
+①
 </div>
 
-<div class="pipeline-card pipeline-active rounded-3xl p-6">
-<div class="text-5xl mb-4">②</div>
-<h3 class="text-2xl font-bold">Extract Media</h3>
-<p>Images/Reels/Screenshots</p>
+<h3 class="text-2xl font-bold mb-2">
+Collect Posts
+</h3>
+
+<p class="text-slate-400">
+Instagram / Facebook / LinkedIn
+</p>
+
 </div>
 
-<div class="pipeline-card pipeline-active rounded-3xl p-6">
-<div class="text-5xl mb-4">③</div>
-<h3 class="text-2xl font-bold">OCR + AI</h3>
-<p>Logo & Text Detection</p>
+<div class="pipeline-card glass rounded-3xl p-6">
+
+<div class="text-5xl mb-4">
+②
 </div>
 
-<div class="pipeline-card pipeline-active rounded-3xl p-6">
-<div class="text-5xl mb-4">④</div>
-<h3 class="text-2xl font-bold">Risk Analysis</h3>
-<p>ORM Intelligence Engine</p>
+<h3 class="text-2xl font-bold mb-2">
+Extract Media
+</h3>
+
+<p class="text-slate-400">
+Images / Reels / Creatives
+</p>
+
 </div>
 
-<div class="pipeline-card pipeline-active rounded-3xl p-6">
-<div class="text-5xl mb-4">⑤</div>
-<h3 class="text-2xl font-bold">Export Report</h3>
-<p>CSV/XLSX/Evidence</p>
+<div class="pipeline-card glass rounded-3xl p-6">
+
+<div class="text-5xl mb-4">
+③
+</div>
+
+<h3 class="text-2xl font-bold mb-2">
+OCR + AI
+</h3>
+
+<p class="text-slate-400">
+Visual similarity detection
+</p>
+
+</div>
+
+<div class="pipeline-card glass rounded-3xl p-6">
+
+<div class="text-5xl mb-4">
+④
+</div>
+
+<h3 class="text-2xl font-bold mb-2">
+Risk Engine
+</h3>
+
+<p class="text-slate-400">
+Threat intelligence analysis
+</p>
+
+</div>
+
+<div class="pipeline-card glass rounded-3xl p-6">
+
+<div class="text-5xl mb-4">
+⑤
+</div>
+
+<h3 class="text-2xl font-bold mb-2">
+Export Reports
+</h3>
+
+<p class="text-slate-400">
+CSV / XLSX intelligence
+</p>
+
 </div>
 
 </div>
@@ -252,13 +426,25 @@ Export XLSX
 
 <div class="glass rounded-3xl p-6">
 
-<h2 class="text-3xl font-black mb-6">
-Detection Results
+<div class="flex justify-between items-center mb-8">
+
+<div>
+
+<h2 class="text-4xl font-black text-cyan-300 mb-2">
+Live Threat Intelligence Feed
 </h2>
 
-<div class="overflow-x-auto">
+<p class="text-slate-400">
+Real-time visual ORM detections
+</p>
 
-<table class="w-full min-w-[1600px]">
+</div>
+
+</div>
+
+<div class="overflow-x-auto scrollbar">
+
+<table class="w-full min-w-[1500px]">
 
 <thead>
 
@@ -270,14 +456,15 @@ Detection Results
 <th class="p-4">Detected Brand</th>
 <th class="p-4">Match Score</th>
 <th class="p-4">Risk</th>
-<th class="p-4">Detected Text</th>
-<th class="p-4">Evidence</th>
+<th class="p-4">Detected OCR Text</th>
 
 </tr>
 
 </thead>
 
-<tbody id="resultsBody"></tbody>
+<tbody id="resultsBody">
+
+</tbody>
 
 </table>
 
@@ -337,60 +524,141 @@ document.getElementById('imageUrl').value = ''
 
 }
 
+function generatePostLink(platform, url){
+
+if(platform === 'Instagram'){
+
+return `
+<a
+href="${url}"
+target="_blank"
+class="text-pink-400 hover:text-pink-300"
+>
+Open Instagram Post
+</a>
+`
+}
+
+if(platform === 'Facebook'){
+
+return `
+<a
+href="${url}"
+target="_blank"
+class="text-blue-400 hover:text-blue-300"
+>
+Open Facebook Post
+</a>
+`
+}
+
+if(platform === 'LinkedIn'){
+
+return `
+<a
+href="${url}"
+target="_blank"
+class="text-cyan-400 hover:text-cyan-300"
+>
+Open LinkedIn Post
+</a>
+`
+}
+
+return '-'
+
+}
+
 function startScan(){
 
 const tbody =
 document.getElementById('resultsBody')
 
+const demoResults = [
+
+{
+platform:'Instagram',
+username:'trading_master',
+url:'https://www.instagram.com/',
+brand:'Zerodha',
+score:'94%',
+risk:'Critical',
+ocr:'Join VIP Telegram Group'
+},
+
+{
+platform:'Facebook',
+username:'stocksignalsindia',
+url:'https://www.facebook.com/',
+brand:'Groww',
+score:'89%',
+risk:'High',
+ocr:'Guaranteed Returns'
+},
+
+{
+platform:'LinkedIn',
+username:'Market Insights',
+url:'https://www.linkedin.com/',
+brand:'ICICI Direct',
+score:'91%',
+risk:'Medium',
+ocr:'Premium Signals Group'
+}
+
+]
+
+demoResults.forEach(result=>{
+
+let riskClass = 'bg-yellow-500/20 text-yellow-300'
+
+if(result.risk === 'Critical'){
+riskClass = 'bg-red-500/20 text-red-300'
+}
+
+if(result.risk === 'High'){
+riskClass = 'bg-orange-500/20 text-orange-300'
+}
+
 tbody.innerHTML += `
 
-<tr class="border-b border-slate-800">
+<tr class="border-b border-slate-800 threat-row">
 
-<td class="p-4">
-Instagram
+<td class="p-4 font-semibold">
+${result.platform}
 </td>
 
 <td class="p-4">
-trading_master
+${result.username}
 </td>
 
 <td class="p-4">
-<a
-href="#"
-class="text-cyan-400"
-target="_blank"
->
-Open Post
-</a>
+${generatePostLink(result.platform,result.url)}
 </td>
 
 <td class="p-4">
-Zerodha
+${result.brand}
+</td>
+
+<td class="p-4 text-cyan-300 font-bold">
+${result.score}
 </td>
 
 <td class="p-4">
-94%
-</td>
-
-<td class="p-4">
-<span class="bg-red-500/20 text-red-300 px-3 py-1 rounded-full">
-Critical
+<span class="${riskClass} px-3 py-1 rounded-full">
+${result.risk}
 </span>
 </td>
 
 <td class="p-4">
-Join VIP Telegram Group
-</td>
-
-<td class="p-4">
-<a href="#" class="text-cyan-400">
-View Screenshot
-</a>
+${result.ocr}
 </td>
 
 </tr>
 
 `
+
+})
 
 }
 
