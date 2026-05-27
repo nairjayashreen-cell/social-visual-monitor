@@ -34,8 +34,8 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 vision_client = vision.ImageAnnotatorClient()
 
-APIFY_TOKEN = "YOUR_APIFY_TOKEN"
-DATASET_ID = "YOUR_DATASET_ID"
+APIFY_TOKEN = os.getenv("APIFY_TOKEN")
+DATASET_ID = "shu8hvrXbJbY3Eb9W"
 
 def compare_images(img1_path, img2_path):
 
