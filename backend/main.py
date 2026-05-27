@@ -17,7 +17,7 @@ app.add_middleware(
 # APIFY SETTINGS
 # =========================
 
-APIFY_TOKEN = "apify_api_T71OkLS49xPSybQkNM64wnnatP0Z521Scn6Z"
+APIFY_TOKEN = "apify_api_tdIZP0fTwGtGbxxIbSQef5SFrJ34rw4oFhbs"
 
 # Replace with your Dataset ID
 DATASET_ID = "xYIBUaWUK5ie0sxpg"
