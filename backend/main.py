@@ -1,13 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import vision
 import requests
 import os
 import json
-
-# =========================
-# CREATE GOOGLE JSON FILE
-# =========================
+import shutil
+import cv2
+from skimage.metrics import structural_similarity as ssim
 
 if os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"):
 
@@ -20,10 +19,6 @@ if os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"):
 
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google-vision.json"
 
-# =========================
-# FASTAPI
-# =========================
-
 app = FastAPI()
 
 app.add_middleware(
@@ -34,53 +29,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =========================
-# GOOGLE VISION CLIENT
-# =========================
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 vision_client = vision.ImageAnnotatorClient()
 
-# =========================
-# APIFY SETTINGS
-# =========================
+APIFY_TOKEN = "YOUR_APIFY_TOKEN"
+DATASET_ID = "YOUR_DATASET_ID"
 
-APIFY_TOKEN = "apify_api_tdIZP0fTwGtGbxxIbSQef5SFrJ34rw4oFhbs"
-DATASET_ID = "xYIBUaWUK5ie0sxpg"
+def compare_images(img1_path, img2_path):
 
-# =========================
-# HOME
-# =========================
+    try:
+
+        img1 = cv2.imread(img1_path)
+        img2 = cv2.imread(img2_path)
+
+        img1 = cv2.resize(img1, (300,300))
+        img2 = cv2.resize(img2, (300,300))
+
+        gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+        gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+
+        score, _ = ssim(gray1, gray2, full=True)
+
+        return score
+
+    except:
+        return 0
 
 @app.get("/")
 def home():
     return {
-        "status": "AI Visual Threat Monitoring API Running"
+        "status":"AI Visual Threat Monitoring Running"
     }
 
-# =========================
-# LOGO DETECTION
-# =========================
+@app.post("/upload")
+async def upload_logo(file: UploadFile = File(...)):
 
-def detect_logos(image_url):
+    file_path = f"{UPLOAD_DIR}/reference_logo.png"
 
-    image = vision.Image()
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
 
-    image.source.image_uri = image_url
-
-    response = vision_client.logo_detection(image=image)
-
-    logos = response.logo_annotations
-
-    detected = []
-
-    for logo in logos:
-        detected.append(logo.description)
-
-    return detected
-
-# =========================
-# LIVE SCAN
-# =========================
+    return {
+        "message":"Logo uploaded successfully"
+    }
 
 @app.get("/scan")
 def scan():
@@ -97,24 +90,36 @@ def scan():
 
         image_url = item.get("displayUrl", "")
 
-        detected_logos = []
+        temp_image_path = "uploads/temp.jpg"
 
         try:
-            detected_logos = detect_logos(image_url)
+
+            img_data = requests.get(image_url).content
+
+            with open(temp_image_path, 'wb') as handler:
+                handler.write(img_data)
+
         except:
-            pass
+            continue
 
-        results.append({
+        similarity = compare_images(
+            "uploads/reference_logo.png",
+            temp_image_path
+        )
 
-            "platform": "Instagram",
-            "username": item.get("ownerUsername", "unknown"),
-            "url": item.get("url", ""),
-            "brand": ", ".join(detected_logos),
-            "score": "96%",
-            "risk": "Critical",
-            "ocr": item.get("caption", "")[:120],
-            "time": item.get("timestamp", "recent")
+        if similarity > 0.45:
 
-        })
+            results.append({
+
+                "platform":"Instagram",
+                "username": item.get("ownerUsername","unknown"),
+                "url": item.get("url",""),
+                "brand":"Logo Match Found",
+                "score": f"{round(similarity*100)}%",
+                "risk":"Critical",
+                "ocr": item.get("caption","")[:120],
+                "time": item.get("timestamp","recent")
+
+            })
 
     return results
