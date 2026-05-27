@@ -5,8 +5,8 @@ import requests
 import os
 import json
 import shutil
-import cv2
-from skimage.metrics import structural_similarity as ssim
+from PIL import Image
+import imagehash
 
 # =========================================
 # GOOGLE VISION CREDENTIALS
@@ -56,36 +56,29 @@ vision_client = vision.ImageAnnotatorClient()
 
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
-# YOUR DATASET ID
+# YOUR APIFY DATASET ID
 DATASET_ID = "xYIBUaWUK5ie0sxpg"
 
 # =========================================
-# IMAGE COMPARISON
+# IMAGE HASH COMPARISON
 # =========================================
 
 def compare_images(img1_path, img2_path):
 
     try:
 
-        img1 = cv2.imread(img1_path)
-        img2 = cv2.imread(img2_path)
+        hash1 = imagehash.phash(Image.open(img1_path))
+        hash2 = imagehash.phash(Image.open(img2_path))
 
-        if img1 is None or img2 is None:
-            return 0
+        difference = hash1 - hash2
 
-        img1 = cv2.resize(img1, (300, 300))
-        img2 = cv2.resize(img2, (300, 300))
+        similarity = 1 - (difference / 64)
 
-        gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-        gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
-        score, _ = ssim(gray1, gray2, full=True)
-
-        return score
+        return similarity
 
     except Exception as e:
 
-        print("COMPARE ERROR:", e)
+        print("HASH ERROR:", e)
 
         return 0
 
@@ -107,14 +100,22 @@ def home():
 @app.post("/upload")
 async def upload_logo(file: UploadFile = File(...)):
 
-    file_path = f"{UPLOAD_DIR}/reference_logo.png"
+    try:
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        file_path = f"{UPLOAD_DIR}/reference_logo.png"
 
-    return {
-        "message": "Reference creative uploaded successfully"
-    }
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        return {
+            "message": "Reference creative uploaded successfully"
+        }
+
+    except Exception as e:
+
+        return {
+            "error": str(e)
+        }
 
 # =========================================
 # SCAN INSTAGRAM POSTS
@@ -138,26 +139,21 @@ def scan():
             }
 
         # =========================================
-        # APIFY API URL
+        # APIFY DATASET API
         # =========================================
 
         url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?token={APIFY_TOKEN}"
 
         response = requests.get(url)
 
-        # DEBUG RESPONSE
         print("STATUS CODE:", response.status_code)
-
-        # =========================================
-        # PARSE JSON
-        # =========================================
 
         data = response.json()
 
         print("DATA TYPE:", type(data))
 
         # =========================================
-        # HANDLE DIFFERENT RESPONSE FORMATS
+        # HANDLE DIFFERENT JSON FORMATS
         # =========================================
 
         if isinstance(data, dict):
@@ -169,7 +165,7 @@ def scan():
                 data = []
 
         # =========================================
-        # RESULTS ARRAY
+        # RESULTS
         # =========================================
 
         results = []
@@ -182,7 +178,6 @@ def scan():
 
             try:
 
-                # SAFETY CHECK
                 if not isinstance(item, dict):
                     continue
 
@@ -191,11 +186,11 @@ def scan():
                 if not image_url:
                     continue
 
-                # =========================================
-                # DOWNLOAD POST IMAGE
-                # =========================================
-
                 temp_image_path = "uploads/temp.jpg"
+
+                # =========================================
+                # DOWNLOAD IMAGE
+                # =========================================
 
                 try:
 
@@ -209,12 +204,12 @@ def scan():
 
                 except Exception as e:
 
-                    print("IMAGE DOWNLOAD ERROR:", e)
+                    print("DOWNLOAD ERROR:", e)
 
                     continue
 
                 # =========================================
-                # IMAGE COMPARISON
+                # IMAGE MATCHING
                 # =========================================
 
                 similarity = compare_images(
@@ -228,7 +223,7 @@ def scan():
                 # MATCH FOUND
                 # =========================================
 
-                if similarity > 0.45:
+                if similarity > 0.60:
 
                     results.append({
 
@@ -244,6 +239,8 @@ def scan():
                             ""
                         ),
 
+                        "image": image_url,
+
                         "brand": "Logo Match Found",
 
                         "score": f"{round(similarity * 100)}%",
@@ -253,7 +250,7 @@ def scan():
                         "ocr": item.get(
                             "caption",
                             ""
-                        )[:120],
+                        )[:200],
 
                         "time": item.get(
                             "timestamp",
