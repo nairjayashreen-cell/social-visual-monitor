@@ -14,7 +14,7 @@ app.add_middleware(
 @app.get("/")
 def home():
     return {
-        "status": "AiPlex ORM API Running"
+        "status": "AI Visual Threat Monitoring API Running"
     }
 
 @app.get("/scan")
