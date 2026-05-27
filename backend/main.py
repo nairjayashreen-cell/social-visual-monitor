@@ -8,9 +8,9 @@ import shutil
 import cv2
 from skimage.metrics import structural_similarity as ssim
 
-# =========================
-# GOOGLE VISION SETUP
-# =========================
+# =========================================
+# GOOGLE VISION CREDENTIALS
+# =========================================
 
 if os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"):
 
@@ -23,9 +23,9 @@ if os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"):
 
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google-vision.json"
 
-# =========================
-# FASTAPI
-# =========================
+# =========================================
+# FASTAPI INIT
+# =========================================
 
 app = FastAPI()
 
@@ -37,29 +37,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =========================
-# FOLDERS
-# =========================
+# =========================================
+# UPLOAD FOLDER
+# =========================================
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# =========================
-# GOOGLE CLIENT
-# =========================
+# =========================================
+# GOOGLE VISION CLIENT
+# =========================================
 
 vision_client = vision.ImageAnnotatorClient()
 
-# =========================
-# APIFY
-# =========================
+# =========================================
+# APIFY CONFIG
+# =========================================
 
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
+
+# YOUR DATASET ID
 DATASET_ID = "xYIBUaWUK5ie0sxpg"
 
-# =========================
+# =========================================
 # IMAGE COMPARISON
-# =========================
+# =========================================
 
 def compare_images(img1_path, img2_path):
 
@@ -67,6 +69,9 @@ def compare_images(img1_path, img2_path):
 
         img1 = cv2.imread(img1_path)
         img2 = cv2.imread(img2_path)
+
+        if img1 is None or img2 is None:
+            return 0
 
         img1 = cv2.resize(img1, (300, 300))
         img2 = cv2.resize(img2, (300, 300))
@@ -78,12 +83,15 @@ def compare_images(img1_path, img2_path):
 
         return score
 
-    except:
+    except Exception as e:
+
+        print("COMPARE ERROR:", e)
+
         return 0
 
-# =========================
-# HOME
-# =========================
+# =========================================
+# HOME ROUTE
+# =========================================
 
 @app.get("/")
 def home():
@@ -92,9 +100,9 @@ def home():
         "status": "AI Visual Threat Monitoring Running"
     }
 
-# =========================
-# UPLOAD LOGO
-# =========================
+# =========================================
+# UPLOAD REFERENCE CREATIVE
+# =========================================
 
 @app.post("/upload")
 async def upload_logo(file: UploadFile = File(...)):
@@ -108,62 +116,161 @@ async def upload_logo(file: UploadFile = File(...)):
         "message": "Reference creative uploaded successfully"
     }
 
-# =========================
-# SCAN
-# =========================
+# =========================================
+# SCAN INSTAGRAM POSTS
+# =========================================
 
 @app.get("/scan")
 def scan():
 
     try:
 
+        # =========================================
+        # CHECK IF REFERENCE IMAGE EXISTS
+        # =========================================
+
+        reference_image = "uploads/reference_logo.png"
+
+        if not os.path.exists(reference_image):
+
+            return {
+                "error": "Please upload reference creative first using /upload"
+            }
+
+        # =========================================
+        # APIFY API URL
+        # =========================================
+
         url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?token={APIFY_TOKEN}"
 
         response = requests.get(url)
 
+        # DEBUG RESPONSE
+        print("STATUS CODE:", response.status_code)
+
+        # =========================================
+        # PARSE JSON
+        # =========================================
+
         data = response.json()
+
+        print("DATA TYPE:", type(data))
+
+        # =========================================
+        # HANDLE DIFFERENT RESPONSE FORMATS
+        # =========================================
+
+        if isinstance(data, dict):
+
+            if "items" in data:
+                data = data["items"]
+
+            else:
+                data = []
+
+        # =========================================
+        # RESULTS ARRAY
+        # =========================================
 
         results = []
 
+        # =========================================
+        # LOOP THROUGH POSTS
+        # =========================================
+
         for item in data:
-
-            image_url = item.get("displayUrl", "")
-
-            if not image_url:
-                continue
-
-            temp_image_path = "uploads/temp.jpg"
 
             try:
 
-                img_data = requests.get(image_url).content
+                # SAFETY CHECK
+                if not isinstance(item, dict):
+                    continue
 
-                with open(temp_image_path, 'wb') as handler:
-                    handler.write(img_data)
+                image_url = item.get("displayUrl", "")
 
-            except Exception as e:
-                print("IMAGE DOWNLOAD ERROR:", e)
+                if not image_url:
+                    continue
+
+                # =========================================
+                # DOWNLOAD POST IMAGE
+                # =========================================
+
+                temp_image_path = "uploads/temp.jpg"
+
+                try:
+
+                    img_response = requests.get(image_url)
+
+                    if img_response.status_code != 200:
+                        continue
+
+                    with open(temp_image_path, "wb") as handler:
+                        handler.write(img_response.content)
+
+                except Exception as e:
+
+                    print("IMAGE DOWNLOAD ERROR:", e)
+
+                    continue
+
+                # =========================================
+                # IMAGE COMPARISON
+                # =========================================
+
+                similarity = compare_images(
+                    reference_image,
+                    temp_image_path
+                )
+
+                print("SIMILARITY:", similarity)
+
+                # =========================================
+                # MATCH FOUND
+                # =========================================
+
+                if similarity > 0.45:
+
+                    results.append({
+
+                        "platform": "Instagram",
+
+                        "username": item.get(
+                            "ownerUsername",
+                            "unknown"
+                        ),
+
+                        "url": item.get(
+                            "url",
+                            ""
+                        ),
+
+                        "brand": "Logo Match Found",
+
+                        "score": f"{round(similarity * 100)}%",
+
+                        "risk": "Critical",
+
+                        "ocr": item.get(
+                            "caption",
+                            ""
+                        )[:120],
+
+                        "time": item.get(
+                            "timestamp",
+                            "recent"
+                        )
+
+                    })
+
+            except Exception as item_error:
+
+                print("ITEM ERROR:", item_error)
+
                 continue
 
-            similarity = compare_images(
-                "uploads/reference_logo.png",
-                temp_image_path
-            )
-
-            if similarity > 0.45:
-
-                results.append({
-
-                    "platform": "Instagram",
-                    "username": item.get("ownerUsername", "unknown"),
-                    "url": item.get("url", ""),
-                    "brand": "Logo Match Found",
-                    "score": f"{round(similarity * 100)}%",
-                    "risk": "Critical",
-                    "ocr": item.get("caption", "")[:120],
-                    "time": item.get("timestamp", "recent")
-
-                })
+        # =========================================
+        # RETURN RESULTS
+        # =========================================
 
         return results
 
