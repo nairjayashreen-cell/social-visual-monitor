@@ -1,13 +1,9 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import requests
 import os
-import shutil
 
 app = FastAPI()
-
-UPLOAD_DIR = "uploads"
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,58 +13,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# =========================
+# APIFY SETTINGS
+# =========================
+
+APIFY_TOKEN = "apify_api_T71OkLS49xPSybQkNM64wnnatP0Z521Scn6Z"
+
+# Replace with your Dataset ID
+DATASET_ID = "#xYIBUaWUK5ie0sxpg"
+
+# =========================
+# HOME
+# =========================
+
 @app.get("/")
 def home():
-
     return {
-        "status":"AI Visual Threat Monitoring API Running"
+        "status": "AI Visual Threat Monitoring API Running"
     }
 
-@app.post("/upload")
-
-async def upload_logo(
-    file: UploadFile = File(...)
-):
-
-    file_path = f"{UPLOAD_DIR}/{file.filename}"
-
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    return {
-        "message":"Logo uploaded successfully",
-        "filename":file.filename,
-        "path":file_path
-    }
+# =========================
+# LIVE SCAN
+# =========================
 
 @app.get("/scan")
-
 def scan():
 
-    uploaded_files = os.listdir(UPLOAD_DIR)
+    url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?token={APIFY_TOKEN}"
+
+    response = requests.get(url)
+
+    data = response.json()
 
     results = []
 
-    for file in uploaded_files:
+    for item in data:
 
-        results.append({
+        try:
 
-            "platform":"Instagram",
+            results.append({
+                "platform": "Instagram",
+                "username": item.get("ownerUsername", "unknown"),
+                "url": item.get("url", ""),
+                "brand": "Detected Brand",
+                "score": "96%",
+                "risk": "Critical",
+                "ocr": item.get("caption", "")[:120],
+                "time": item.get("timestamp", "recent")
+            })
 
-            "username":"detected_account",
-
-            "url":"https://www.instagram.com/p/DXXA7x3GfUw/",
-
-            "brand":file,
-
-            "score":"96%",
-
-            "risk":"Critical",
-
-            "ocr":"Unauthorized Brand Promotion",
-
-            "time":"2 hours ago"
-
-        })
+        except:
+            pass
 
     return results
