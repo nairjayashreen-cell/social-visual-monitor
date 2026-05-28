@@ -38,7 +38,7 @@ app.add_middleware(
 )
 
 # =========================================
-# UPLOADS DIRECTORY
+# UPLOAD DIRECTORY
 # =========================================
 
 UPLOAD_DIR = "uploads"
@@ -56,10 +56,11 @@ vision_client = vision.ImageAnnotatorClient()
 
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
+# YOUR NEW DATASET ID
 DATASET_ID = "D2iOgIt8nzh0nopcH"
 
 # =========================================
-# IMAGE COMPARISON FUNCTION
+# IMAGE COMPARISON
 # =========================================
 
 def compare_images(img1_path, img2_path):
@@ -89,7 +90,7 @@ def compare_images(img1_path, img2_path):
         return 0
 
 # =========================================
-# HOME
+# HOME ROUTE
 # =========================================
 
 @app.get("/")
@@ -142,78 +143,144 @@ def scan():
                 "error": "No reference image uploaded"
             }
 
+        # =========================================
+        # LOOP THROUGH POSTS
+        # =========================================
+
         for item in data:
 
             try:
 
-                image_url = item.get("displayUrl", "")
-
-                if not image_url:
+                # Ensure item is dict
+                if not isinstance(item, dict):
                     continue
 
-                temp_image_path = "uploads/temp.jpg"
+                image_urls = []
 
                 # =========================================
-                # DOWNLOAD IMAGE
+                # MAIN DISPLAY IMAGE
                 # =========================================
 
-                img_data = requests.get(image_url).content
+                display_url = item.get("displayUrl")
 
-                with open(temp_image_path, "wb") as handler:
-                    handler.write(img_data)
-
-                # =========================================
-                # IMAGE COMPARISON
-                # =========================================
-
-                similarity = compare_images(
-                    reference_image,
-                    temp_image_path
-                )
-
-                print("SIMILARITY:", similarity)
+                if display_url:
+                    image_urls.append(display_url)
 
                 # =========================================
-                # LOWERED THRESHOLD
+                # CAROUSEL IMAGES
                 # =========================================
 
-                if similarity > 0.20:
+                images = item.get("images", [])
 
-                    results.append({
+                if isinstance(images, list):
 
-                        "platform": "Instagram",
+                    for img in images:
 
-                        "username": item.get(
-                            "ownerUsername",
-                            "unknown"
-                        ),
+                        if isinstance(img, str):
+                            image_urls.append(img)
 
-                        "url": item.get(
-                            "url",
-                            ""
-                        ),
+                # =========================================
+                # REMOVE DUPLICATES
+                # =========================================
 
-                        "brand": "Logo Match Found",
+                image_urls = list(set(image_urls))
 
-                        "score": f"{round(similarity * 100)}%",
+                if not image_urls:
+                    continue
 
-                        "risk": "Critical",
+                # =========================================
+                # CHECK EACH IMAGE
+                # =========================================
 
-                        "ocr": item.get(
-                            "caption",
-                            ""
-                        )[:120],
+                for image_url in image_urls:
 
-                        "time": item.get(
-                            "timestamp",
-                            "recent"
+                    try:
+
+                        temp_image_path = "uploads/temp.jpg"
+
+                        img_response = requests.get(
+                            image_url,
+                            timeout=15
                         )
 
-                    })
+                        if img_response.status_code != 200:
+                            continue
+
+                        with open(temp_image_path, "wb") as handler:
+                            handler.write(img_response.content)
+
+                        # =========================================
+                        # COMPARE IMAGES
+                        # =========================================
+
+                        similarity = compare_images(
+                            reference_image,
+                            temp_image_path
+                        )
+
+                        print("SIMILARITY:", similarity)
+
+                        # =========================================
+                        # MATCH THRESHOLD
+                        # =========================================
+
+                        if similarity > 0.20:
+
+                            results.append({
+
+                                "platform": "Instagram",
+
+                                "username": item.get(
+                                    "ownerUsername",
+                                    "unknown"
+                                ),
+
+                                "url": item.get(
+                                    "url",
+                                    ""
+                                ),
+
+                                "brand": "Logo Match Found",
+
+                                "score": f"{round(similarity * 100)}%",
+
+                                "risk": "Critical",
+
+                                "ocr": item.get(
+                                    "caption",
+                                    ""
+                                )[:120],
+
+                                "time": item.get(
+                                    "timestamp",
+                                    "recent"
+                                )
+
+                            })
+
+                            print(
+                                "MATCH FOUND:",
+                                item.get("url", "")
+                            )
+
+                            # Stop checking more images for same post
+                            break
+
+                    except Exception as image_error:
+
+                        print(
+                            "IMAGE ERROR:",
+                            str(image_error)
+                        )
+
+                        continue
 
             except Exception as item_error:
 
-                print("ITEM ERROR:", str(item_error))
+                print(
+                    "ITEM ERROR:",
+                    str(item_error)
+                )
 
                 continue
 
