@@ -56,7 +56,7 @@ vision_client = vision.ImageAnnotatorClient()
 
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
-DATASET_ID = "shu8hvrXbJbY3Eb9W"
+DATASET_ID = "znQKs6OoXgS13bPVk"
 
 # =========================================
 # IMAGE COMPARISON FUNCTION
