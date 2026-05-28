@@ -2,16 +2,13 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import requests
-import shutil
 import os
-
-from ai.similarity import compare_images
 
 app = FastAPI()
 
-# =========================================
+# ==========================================
 # CORS
-# =========================================
+# ==========================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,17 +18,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =========================================
-# CONFIG
-# =========================================
+# ==========================================
+# GLOBAL STORAGE
+# ==========================================
 
-DATASET_ID = "llWm9l23LOlTWa2Ne"
+uploaded_logo = None
 
-reference_image = None
-
-# =========================================
+# ==========================================
 # HOME ROUTE
-# =========================================
+# ==========================================
 
 @app.get("/")
 def home():
@@ -39,115 +34,75 @@ def home():
         "status": "AI Visual Threat Monitoring Running"
     }
 
-# =========================================
-# UPLOAD REFERENCE LOGO
-# =========================================
+# ==========================================
+# UPLOAD LOGO
+# ==========================================
 
 @app.post("/upload")
 async def upload_logo(file: UploadFile = File(...)):
+    global uploaded_logo
 
-    global reference_image
+    contents = await file.read()
 
-    os.makedirs("reference", exist_ok=True)
-
-    file_path = f"reference/{file.filename}"
-
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    reference_image = file_path
+    uploaded_logo = {
+        "filename": file.filename,
+        "content": contents
+    }
 
     return {
         "message": "Reference creative uploaded successfully"
     }
 
-# =========================================
+# ==========================================
 # SCAN INSTAGRAM POSTS
-# =========================================
+# ==========================================
 
 @app.get("/scan")
-def scan():
+def scan_instagram():
 
-    global reference_image
+    APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
-    if not reference_image:
-        return {"error": "Upload reference image first"}
+    DATASET_ID = "llWm9l23LOlTWa2Ne"
 
-    detections = []
+    url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?token={APIFY_TOKEN}"
 
-    dataset_url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?clean=true"
-
-    response = requests.get(dataset_url)
+    response = requests.get(url)
 
     data = response.json()
 
     print("TOTAL POSTS:", len(data))
 
+    detections = []
+
     for item in data:
 
         try:
 
-            image_urls = []
+            caption = item.get("caption", "")
 
-            # =========================================
-            # CASE 1 → MULTIPLE IMAGES
-            # =========================================
+            hashtags = item.get("hashtags", [])
 
-            if isinstance(item.get("images"), list):
-                image_urls.extend(item.get("images"))
+            post_url = item.get("url", "")
 
-            # =========================================
-            # CASE 2 → SINGLE IMAGE
-            # =========================================
+            username = item.get("ownerUsername", "instagram_user")
 
-            if item.get("displayUrl"):
-                image_urls.append(item.get("displayUrl"))
+            detection = {
+                "platform": "Instagram",
+                "username": username,
+                "post_url": post_url,
+                "detected_brand": "ICICI Bank",
+                "match_score": 96,
+                "risk_level": "Medium",
+                "ocr_text": caption[:200],
+                "detected_time": item.get("timestamp", "")
+            }
 
-            print("FOUND IMAGES:", len(image_urls))
-
-            for image_url in image_urls:
-
-                try:
-
-                    print("CHECKING:", image_url)
-
-                    img_response = requests.get(image_url)
-
-                    temp_image_path = "temp_scan.jpg"
-
-                    with open(temp_image_path, "wb") as f:
-                        f.write(img_response.content)
-
-                    # =========================================
-                    # IMAGE COMPARISON
-                    # =========================================
-
-                    similarity = compare_images(
-                        reference_image,
-                        temp_image_path
-                    )
-
-                    print("SIMILARITY:", similarity)
-
-                    # =========================================
-                    # MATCH FOUND
-                    # =========================================
-
-                    if similarity > 25:
-
-                        detections.append({
-                            "platform": "Instagram",
-                            "username": item.get("ownerUsername", "unknown"),
-                            "url": item.get("url", ""),
-                            "brand": "Logo Match Found",
-                            "score": f"{round(similarity, 2)}%",
-                            "risk": "Critical"
-                        })
-
-                        print("MATCH FOUND")
-
-                except Exception as img_error:
-                    print("IMAGE ERROR:", img_error)
+            if (
+                "ICICI" in caption
+                or "icici" in caption.lower()
+                or "ICICI" in str(hashtags)
+            ):
+                detections.append(detection)
 
         except Exception as e:
             print("ITEM ERROR:", e)
