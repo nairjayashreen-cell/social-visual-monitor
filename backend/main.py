@@ -107,4 +107,3 @@ def scan_instagram():
             print("ITEM ERROR:", e)
 
     return detections
-```
