@@ -67,7 +67,13 @@ def scan_instagram():
 
     response = requests.get(url)
 
-    data = response.json() print("RAW RESPONSE:", data) print("DATA TYPE:", type(data)) print("TOTAL POSTS:", len(data))
+    data = response.json()
+
+print("RAW RESPONSE:", data)
+
+print("DATA TYPE:", type(data))
+
+print("TOTAL POSTS:", len(data))
     
 
     detections = []
