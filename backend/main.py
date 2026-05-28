@@ -1,33 +1,17 @@
+```python
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from google.cloud import vision
 import requests
-import os
-import json
 import shutil
-import cv2
-from skimage.metrics import structural_similarity as ssim
+import os
 
-# =========================================
-# GOOGLE VISION CONFIG
-# =========================================
-
-if os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"):
-
-    credentials_data = json.loads(
-        os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-    )
-
-    with open("google-vision.json", "w") as f:
-        json.dump(credentials_data, f)
-
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google-vision.json"
-
-# =========================================
-# FASTAPI APP
-# =========================================
+from ai.similarity import compare_images
 
 app = FastAPI()
+
+# =========================================
+# CORS
+# =========================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,85 +22,47 @@ app.add_middleware(
 )
 
 # =========================================
-# UPLOAD DIRECTORY
+# CONFIG
 # =========================================
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-# =========================================
-# GOOGLE CLIENT
-# =========================================
-
-vision_client = vision.ImageAnnotatorClient()
-
-# =========================================
-# ENV VARIABLES
-# =========================================
-
-APIFY_TOKEN = os.getenv("APIFY_TOKEN")
-
-# YOUR NEW DATASET ID
 DATASET_ID = "llWm9l23LOlTWa2Ne"
 
-# =========================================
-# IMAGE COMPARISON
-# =========================================
+reference_image = None
 
-def compare_images(img1_path, img2_path):
-
-    try:
-
-        img1 = cv2.imread(img1_path)
-        img2 = cv2.imread(img2_path)
-
-        if img1 is None or img2 is None:
-            return 0
-
-        img1 = cv2.resize(img1, (300, 300))
-        img2 = cv2.resize(img2, (300, 300))
-
-        gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-        gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
-        score, _ = ssim(gray1, gray2, full=True)
-
-        return score
-
-    except Exception as e:
-
-        print("COMPARE ERROR:", str(e))
-
-        return 0
 # =========================================
 # HOME ROUTE
 # =========================================
 
 @app.get("/")
 def home():
-
     return {
         "status": "AI Visual Threat Monitoring Running"
     }
 
 # =========================================
-# UPLOAD REFERENCE IMAGE
+# UPLOAD REFERENCE LOGO
 # =========================================
 
 @app.post("/upload")
 async def upload_logo(file: UploadFile = File(...)):
 
-    file_path = f"{UPLOAD_DIR}/reference_logo.png"
+    global reference_image
+
+    os.makedirs("reference", exist_ok=True)
+
+    file_path = f"reference/{file.filename}"
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
+    reference_image = file_path
 
     return {
         "message": "Reference creative uploaded successfully"
     }
 
 # =========================================
-# SCAN FUNCTION
+# SCAN INSTAGRAM POSTS
 # =========================================
 
 @app.get("/scan")
@@ -132,6 +78,7 @@ def scan():
     dataset_url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?clean=true"
 
     response = requests.get(dataset_url)
+
     data = response.json()
 
     print("TOTAL POSTS:", len(data))
@@ -142,11 +89,17 @@ def scan():
 
             image_urls = []
 
-            # CASE 1 → images array
+            # =========================================
+            # CASE 1 → MULTIPLE IMAGES
+            # =========================================
+
             if isinstance(item.get("images"), list):
                 image_urls.extend(item.get("images"))
 
-            # CASE 2 → displayUrl
+            # =========================================
+            # CASE 2 → SINGLE IMAGE
+            # =========================================
+
             if item.get("displayUrl"):
                 image_urls.append(item.get("displayUrl"))
 
@@ -165,12 +118,20 @@ def scan():
                     with open(temp_image_path, "wb") as f:
                         f.write(img_response.content)
 
+                    # =========================================
+                    # IMAGE COMPARISON
+                    # =========================================
+
                     similarity = compare_images(
                         reference_image,
                         temp_image_path
                     )
 
                     print("SIMILARITY:", similarity)
+
+                    # =========================================
+                    # MATCH FOUND
+                    # =========================================
 
                     if similarity > 25:
 
@@ -179,7 +140,7 @@ def scan():
                             "username": item.get("ownerUsername", "unknown"),
                             "url": item.get("url", ""),
                             "brand": "Logo Match Found",
-                            "score": f"{round(similarity,2)}%",
+                            "score": f"{round(similarity, 2)}%",
                             "risk": "Critical"
                         })
 
@@ -192,154 +153,4 @@ def scan():
             print("ITEM ERROR:", e)
 
     return detections
-
-        # =========================================
-        # LOOP THROUGH POSTS
-        # =========================================
-
-        for item in data:
-
-            try:
-
-                # Ensure item is dict
-                if not isinstance(item, dict):
-                    continue
-
-                image_urls = []
-
-                # =========================================
-                # MAIN DISPLAY IMAGE
-                # =========================================
-
-                display_url = item.get("displayUrl")
-
-                if display_url:
-                    image_urls.append(display_url)
-
-                # =========================================
-                # CAROUSEL IMAGES
-                # =========================================
-
-                images = item.get("images", [])
-
-                if isinstance(images, list):
-
-                    for img in images:
-
-                        if isinstance(img, str):
-                            image_urls.append(img)
-
-                # =========================================
-                # REMOVE DUPLICATES
-                # =========================================
-
-                image_urls = list(set(image_urls))
-
-                if not image_urls:
-                    continue
-
-                # =========================================
-                # CHECK EACH IMAGE
-                # =========================================
-
-                for image_url in image_urls:
-
-                    try:
-
-                        temp_image_path = "uploads/temp.jpg"
-
-                        img_response = requests.get(
-                            image_url,
-                            timeout=15
-                        )
-
-                        if img_response.status_code != 200:
-                            continue
-
-                        with open(temp_image_path, "wb") as handler:
-                            handler.write(img_response.content)
-
-                        # =========================================
-                        # COMPARE IMAGES
-                        # =========================================
-
-                        similarity = compare_images(
-                            reference_image,
-                            temp_image_path
-                        )
-
-                        print("SIMILARITY:", similarity)
-
-                        # =========================================
-                        # MATCH THRESHOLD
-                        # =========================================
-
-                        if similarity > 0.20:
-
-                            results.append({
-
-                                "platform": "Instagram",
-
-                                "username": item.get(
-                                    "ownerUsername",
-                                    "unknown"
-                                ),
-
-                                "url": item.get(
-                                    "url",
-                                    ""
-                                ),
-
-                                "brand": "Logo Match Found",
-
-                                "score": f"{round(similarity * 100)}%",
-
-                                "risk": "Critical",
-
-                                "ocr": item.get(
-                                    "caption",
-                                    ""
-                                )[:120],
-
-                                "time": item.get(
-                                    "timestamp",
-                                    "recent"
-                                )
-
-                            })
-
-                            print(
-                                "MATCH FOUND:",
-                                item.get("url", "")
-                            )
-
-                            # Stop checking more images for same post
-                            break
-
-                    except Exception as image_error:
-
-                        print(
-                            "IMAGE ERROR:",
-                            str(image_error)
-                        )
-
-                        continue
-
-            except Exception as item_error:
-
-                print(
-                    "ITEM ERROR:",
-                    str(item_error)
-                )
-
-                continue
-
-        return results
-
-    except Exception as e:
-
-        print("SCAN ERROR:", str(e))
-
-        return {
-            "error": str(e)
-        }
+```
