@@ -41,73 +41,101 @@ def home():
 async def upload_logo(file: UploadFile = File(...)):
     global uploaded_logo
 
-    contents = await file.read()
-
-    uploaded_logo = {
-        "filename": file.filename,
-        "content": contents
-    }
+    uploaded_logo = file.filename
 
     return {
         "message": "Reference creative uploaded successfully"
     }
 
 # ==========================================
-# SCAN INSTAGRAM POSTS
+# INSTAGRAM SCAN
 # ==========================================
 
 @app.get("/scan")
 def scan_instagram():
 
+    global uploaded_logo
+
+    if not uploaded_logo:
+        return {
+            "error": "Please upload logo first"
+        }
+
     APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
-    DATASET_ID = "llWm9l23LOlTWa2Ne"
+    if not APIFY_TOKEN:
+        return {
+            "error": "Missing APIFY_TOKEN environment variable"
+        }
 
-    url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?token={APIFY_TOKEN}"
+    dataset_id = "llWm9l23LOlTWa2Ne"
 
-    response = requests.get(url)
+    url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_TOKEN}"
 
-    data = response.json()
+    try:
 
-print("RAW RESPONSE:", data)
+        response = requests.get(url)
 
-print("DATA TYPE:", type(data))
+        data = response.json()
 
-print("TOTAL POSTS:", len(data))
-    
+        print("RAW RESPONSE:", data)
 
-    detections = []
+        print("DATA TYPE:", type(data))
 
-    for item in data:
+        print("TOTAL POSTS:", len(data))
 
-        try:
+        detections = []
 
-            caption = item.get("caption", "")
+        keywords = [
+            "icici",
+            "icici bank",
+            "bank",
+            "loan",
+            "credit card",
+            "finance"
+        ]
 
-            hashtags = item.get("hashtags", [])
+        if isinstance(data, list):
 
-            post_url = item.get("url", "")
+            for post in data:
 
-            username = item.get("ownerUsername", "instagram_user")
+                try:
 
-            detection = {
-                "platform": "Instagram",
-                "username": username,
-                "post_url": post_url,
-                "detected_brand": "ICICI Bank",
-                "match_score": 96,
-                "risk_level": "Medium",
-                "ocr_text": caption[:200],
-                "detected_time": item.get("timestamp", "")
-            }
+                    caption = str(post.get("caption", "")).lower()
 
-            text_to_check = f"{caption} {hashtags}".lower()
+                    hashtags = post.get("hashtags", [])
 
-            if "icici" in text_to_check:
+                    hashtags_text = " ".join(hashtags).lower()
 
-                detections.append(detection)
+                    combined_text = caption + " " + hashtags_text
 
-        except Exception as e:
-            print("ITEM ERROR:", e)
+                    matched = any(
+                        keyword in combined_text
+                        for keyword in keywords
+                    )
 
-    return detections
+                    if matched:
+
+                        detections.append({
+                            "platform": "Instagram",
+                            "username": post.get("ownerUsername", "unknown"),
+                            "postUrl": post.get("url", ""),
+                            "detectedBrand": "ICICI",
+                            "matchScore": "96%",
+                            "risk": "Medium",
+                            "detectedText": caption[:200]
+                        })
+
+                except Exception as item_error:
+
+                    print("ITEM ERROR:", item_error)
+
+        return detections
+
+    except Exception as e:
+
+        print("SCAN ERROR:", e)
+
+        return {
+            "error": str(e)
+        }
