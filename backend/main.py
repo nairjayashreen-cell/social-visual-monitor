@@ -5,11 +5,11 @@ import requests
 import os
 import json
 import shutil
-from PIL import Image
-import imagehash
+import cv2
+from skimage.metrics import structural_similarity as ssim
 
 # =========================================
-# GOOGLE VISION CREDENTIALS
+# GOOGLE VISION CONFIG
 # =========================================
 
 if os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"):
@@ -24,7 +24,7 @@ if os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"):
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google-vision.json"
 
 # =========================================
-# FASTAPI INIT
+# FASTAPI APP
 # =========================================
 
 app = FastAPI()
@@ -38,52 +38,58 @@ app.add_middleware(
 )
 
 # =========================================
-# UPLOAD FOLDER
+# UPLOADS DIRECTORY
 # =========================================
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # =========================================
-# GOOGLE VISION CLIENT
+# GOOGLE CLIENT
 # =========================================
 
 vision_client = vision.ImageAnnotatorClient()
 
 # =========================================
-# APIFY CONFIG
+# ENV VARIABLES
 # =========================================
 
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
-# YOUR APIFY DATASET ID
-DATASET_ID = "xYIBUaWUK5ie0sxpg"
+DATASET_ID = "shu8hvrXbJbY3Eb9W"
 
 # =========================================
-# IMAGE HASH COMPARISON
+# IMAGE COMPARISON FUNCTION
 # =========================================
 
 def compare_images(img1_path, img2_path):
 
     try:
 
-        hash1 = imagehash.phash(Image.open(img1_path))
-        hash2 = imagehash.phash(Image.open(img2_path))
+        img1 = cv2.imread(img1_path)
+        img2 = cv2.imread(img2_path)
 
-        difference = hash1 - hash2
+        if img1 is None or img2 is None:
+            return 0
 
-        similarity = 1 - (difference / 64)
+        img1 = cv2.resize(img1, (300, 300))
+        img2 = cv2.resize(img2, (300, 300))
 
-        return similarity
+        gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+        gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+
+        score, _ = ssim(gray1, gray2, full=True)
+
+        return score
 
     except Exception as e:
 
-        print("HASH ERROR:", e)
+        print("COMPARE ERROR:", str(e))
 
         return 0
 
 # =========================================
-# HOME ROUTE
+# HOME
 # =========================================
 
 @app.get("/")
@@ -94,31 +100,23 @@ def home():
     }
 
 # =========================================
-# UPLOAD REFERENCE CREATIVE
+# UPLOAD REFERENCE IMAGE
 # =========================================
 
 @app.post("/upload")
 async def upload_logo(file: UploadFile = File(...)):
 
-    try:
+    file_path = f"{UPLOAD_DIR}/reference_logo.png"
 
-        file_path = f"{UPLOAD_DIR}/reference_logo.png"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
 
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        return {
-            "message": "Reference creative uploaded successfully"
-        }
-
-    except Exception as e:
-
-        return {
-            "error": str(e)
-        }
+    return {
+        "message": "Reference creative uploaded successfully"
+    }
 
 # =========================================
-# SCAN INSTAGRAM POSTS
+# SCAN FUNCTION
 # =========================================
 
 @app.get("/scan")
@@ -126,60 +124,27 @@ def scan():
 
     try:
 
-        # =========================================
-        # CHECK IF REFERENCE IMAGE EXISTS
-        # =========================================
+        url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?token={APIFY_TOKEN}"
+
+        response = requests.get(url)
+
+        data = response.json()
+
+        print("TOTAL POSTS:", len(data))
+
+        results = []
 
         reference_image = "uploads/reference_logo.png"
 
         if not os.path.exists(reference_image):
 
             return {
-                "error": "Please upload reference creative first using /upload"
+                "error": "No reference image uploaded"
             }
-
-        # =========================================
-        # APIFY DATASET API
-        # =========================================
-
-        url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?token={APIFY_TOKEN}"
-
-        response = requests.get(url)
-
-        print("STATUS CODE:", response.status_code)
-
-        data = response.json()
-
-        print("DATA TYPE:", type(data))
-
-        # =========================================
-        # HANDLE DIFFERENT JSON FORMATS
-        # =========================================
-
-        if isinstance(data, dict):
-
-            if "items" in data:
-                data = data["items"]
-
-            else:
-                data = []
-
-        # =========================================
-        # RESULTS
-        # =========================================
-
-        results = []
-
-        # =========================================
-        # LOOP THROUGH POSTS
-        # =========================================
 
         for item in data:
 
             try:
-
-                if not isinstance(item, dict):
-                    continue
 
                 image_url = item.get("displayUrl", "")
 
@@ -192,24 +157,13 @@ def scan():
                 # DOWNLOAD IMAGE
                 # =========================================
 
-                try:
+                img_data = requests.get(image_url).content
 
-                    img_response = requests.get(image_url)
-
-                    if img_response.status_code != 200:
-                        continue
-
-                    with open(temp_image_path, "wb") as handler:
-                        handler.write(img_response.content)
-
-                except Exception as e:
-
-                    print("DOWNLOAD ERROR:", e)
-
-                    continue
+                with open(temp_image_path, "wb") as handler:
+                    handler.write(img_data)
 
                 # =========================================
-                # IMAGE MATCHING
+                # IMAGE COMPARISON
                 # =========================================
 
                 similarity = compare_images(
@@ -220,10 +174,10 @@ def scan():
                 print("SIMILARITY:", similarity)
 
                 # =========================================
-                # MATCH FOUND
+                # LOWERED THRESHOLD
                 # =========================================
 
-                if similarity > 0.30:
+                if similarity > 0.20:
 
                     results.append({
 
@@ -239,8 +193,6 @@ def scan():
                             ""
                         ),
 
-                        "image": image_url,
-
                         "brand": "Logo Match Found",
 
                         "score": f"{round(similarity * 100)}%",
@@ -250,7 +202,7 @@ def scan():
                         "ocr": item.get(
                             "caption",
                             ""
-                        )[:200],
+                        )[:120],
 
                         "time": item.get(
                             "timestamp",
@@ -261,17 +213,15 @@ def scan():
 
             except Exception as item_error:
 
-                print("ITEM ERROR:", item_error)
+                print("ITEM ERROR:", str(item_error))
 
                 continue
-
-        # =========================================
-        # RETURN RESULTS
-        # =========================================
 
         return results
 
     except Exception as e:
+
+        print("SCAN ERROR:", str(e))
 
         return {
             "error": str(e)
