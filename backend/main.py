@@ -68,7 +68,7 @@ def scan_instagram():
             "error": "Missing APIFY_TOKEN environment variable"
         }
 
-    dataset_id = "llWm9l23LOlTWa2Ne"
+    dataset_id = "H48GidXLMED6oA8bK"
 
     url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_TOKEN}"
 
