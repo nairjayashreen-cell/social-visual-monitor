@@ -88,7 +88,6 @@ def compare_images(img1_path, img2_path):
         print("COMPARE ERROR:", str(e))
 
         return 0
-
 # =========================================
 # HOME ROUTE
 # =========================================
