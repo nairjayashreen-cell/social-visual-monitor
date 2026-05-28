@@ -122,25 +122,76 @@ async def upload_logo(file: UploadFile = File(...)):
 @app.get("/scan")
 def scan():
 
-    try:
+    global reference_image
 
-        url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?token={APIFY_TOKEN}"
+    if not reference_image:
+        return {"error": "Upload reference image first"}
 
-        response = requests.get(url)
+    detections = []
 
-        data = response.json()
+    dataset_url = f"https://api.apify.com/v2/datasets/{DATASET_ID}/items?clean=true"
 
-        print("TOTAL POSTS:", len(data))
+    response = requests.get(dataset_url)
+    data = response.json()
 
-        results = []
+    print("TOTAL POSTS:", len(data))
 
-        reference_image = "uploads/reference_logo.png"
+    for item in data:
 
-        if not os.path.exists(reference_image):
+        try:
 
-            return {
-                "error": "No reference image uploaded"
-            }
+            image_urls = []
+
+            # CASE 1 → images array
+            if isinstance(item.get("images"), list):
+                image_urls.extend(item.get("images"))
+
+            # CASE 2 → displayUrl
+            if item.get("displayUrl"):
+                image_urls.append(item.get("displayUrl"))
+
+            print("FOUND IMAGES:", len(image_urls))
+
+            for image_url in image_urls:
+
+                try:
+
+                    print("CHECKING:", image_url)
+
+                    img_response = requests.get(image_url)
+
+                    temp_image_path = "temp_scan.jpg"
+
+                    with open(temp_image_path, "wb") as f:
+                        f.write(img_response.content)
+
+                    similarity = compare_images(
+                        reference_image,
+                        temp_image_path
+                    )
+
+                    print("SIMILARITY:", similarity)
+
+                    if similarity > 25:
+
+                        detections.append({
+                            "platform": "Instagram",
+                            "username": item.get("ownerUsername", "unknown"),
+                            "url": item.get("url", ""),
+                            "brand": "Logo Match Found",
+                            "score": f"{round(similarity,2)}%",
+                            "risk": "Critical"
+                        })
+
+                        print("MATCH FOUND")
+
+                except Exception as img_error:
+                    print("IMAGE ERROR:", img_error)
+
+        except Exception as e:
+            print("ITEM ERROR:", e)
+
+    return detections
 
         # =========================================
         # LOOP THROUGH POSTS
