@@ -223,7 +223,7 @@ def scan():
                 # MATCH FOUND
                 # =========================================
 
-                if similarity > 0.60:
+                if similarity > 0.35:
 
                     results.append({
 
