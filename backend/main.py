@@ -96,11 +96,10 @@ def scan_instagram():
                 "detected_time": item.get("timestamp", "")
             }
 
-            if (
-                "ICICI" in caption
-                or "icici" in caption.lower()
-                or "ICICI" in str(hashtags)
-            ):
+            text_to_check = f"{caption} {hashtags}".lower()
+
+            if "icici" in text_to_check:
+
                 detections.append(detection)
 
         except Exception as e:
