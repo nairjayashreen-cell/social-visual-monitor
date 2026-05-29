@@ -25,7 +25,38 @@ app.add_middleware(
 uploaded_logo = None
 
 # ==========================================
-# HOME ROUTE
+# BRAND CONFIGURATION
+# ==========================================
+
+BRANDS = {
+    "ICICI": {
+        "dataset_id": "rCSm3WSZI7CLbQO9V"
+    },
+    "Groww": {
+        "dataset_id": "UM5FgBJEDue5cHdDn"
+    },
+    "Motilal Oswal": {
+        "dataset_id": "UHe54nGhYCKmay4fG"
+    },
+    "Tata Capital": {
+        "dataset_id": "GNJaaAzrwYm5aKBeT"
+    },
+    "Zerodha": {
+        "dataset_id": "ulvEkheIxIfMvTBle"
+    },
+    "Upstox": {
+        "dataset_id": "Pm3tYd3dHjjwQy4eT"
+    },
+    "SBI": {
+        "dataset_id": "Cu5JITs5mi2z2OJQh"
+    },
+    "Anand Rathi": {
+        "dataset_id": "bKFdqpdhW37BOKOb7"
+    }
+}
+
+# ==========================================
+# HOME
 # ==========================================
 
 @app.get("/")
@@ -49,48 +80,109 @@ async def upload_logo(file: UploadFile = File(...)):
     }
 
 # ==========================================
-# INSTAGRAM SCAN
+# BRAND SELECTION PAGE
+# ==========================================
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+
+    options = ""
+
+    for brand in BRANDS.keys():
+        options += f'<option value="{brand}">{brand}</option>'
+
+    return f"""
+    <html>
+    <head>
+        <title>AI Visual Threat Monitoring</title>
+
+        <style>
+
+            body {{
+                font-family: Arial;
+                background:#f5f6fa;
+                padding:40px;
+            }}
+
+            h1 {{
+                color:#222;
+            }}
+
+            select {{
+                padding:12px;
+                width:300px;
+                font-size:16px;
+            }}
+
+            button {{
+                padding:12px 20px;
+                background:#0d6efd;
+                color:white;
+                border:none;
+                cursor:pointer;
+                margin-left:10px;
+            }}
+
+        </style>
+
+    </head>
+
+    <body>
+
+        <h1>Instagram Brand Monitoring</h1>
+
+        <form action="/scan" method="get">
+
+            <select name="brand">
+                {options}
+            </select>
+
+            <button type="submit">
+                Scan Brand
+            </button>
+
+        </form>
+
+    </body>
+    </html>
+    """
+
+# ==========================================
+# SCAN INSTAGRAM
 # ==========================================
 
 @app.get("/scan", response_class=HTMLResponse)
-def scan_instagram():
-
-    global uploaded_logo
-
-    if not uploaded_logo:
-        return """
-        <h2>Please upload logo first</h2>
-        """
+def scan_instagram(brand: str):
 
     APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
     if not APIFY_TOKEN:
+
         return """
         <h2>Missing APIFY_TOKEN environment variable</h2>
         """
 
-    dataset_id = "H48GidXLMED6oA8bK"
+    if brand not in BRANDS:
+
+        return f"""
+        <h2>Unknown Brand: {brand}</h2>
+        """
+
+    dataset_id = BRANDS[brand]["dataset_id"]
 
     url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_TOKEN}"
 
     try:
 
         response = requests.get(url)
+
         data = response.json()
 
-        print("RAW RESPONSE:", data)
-        print("DATA TYPE:", type(data))
+        print("SELECTED BRAND:", brand)
+        print("DATASET:", dataset_id)
+        print("TOTAL RECORDS:", len(data) if isinstance(data, list) else 0)
 
         detections = []
-
-        keywords = [
-            "icici",
-            "icici bank",
-            "bank",
-            "loan",
-            "credit card",
-            "finance"
-        ]
 
         if isinstance(data, list):
 
@@ -98,29 +190,34 @@ def scan_instagram():
 
                 try:
 
-                    caption = str(post.get("caption", "")).lower()
+                    detections.append({
 
-                    hashtags = post.get("hashtags", [])
-                    hashtags_text = " ".join(hashtags).lower()
+                        "platform": "Instagram",
 
-                    combined_text = caption + " " + hashtags_text
+                        "username": post.get(
+                            "ownerUsername",
+                            "unknown"
+                        ),
 
-                    matched = any(
-                        keyword in combined_text
-                        for keyword in keywords
-                    )
+                        "postUrl": post.get(
+                            "url",
+                            "#"
+                        ),
 
-                    if matched:
+                        "detectedBrand": brand,
 
-                        detections.append({
-                            "platform": "Instagram",
-                            "username": post.get("ownerUsername", "unknown"),
-                            "postUrl": post.get("url", ""),
-                            "detectedBrand": "ICICI",
-                            "matchScore": "96%",
-                            "risk": "Medium",
-                            "detectedText": caption[:150]
-                        })
+                        "matchScore": "96%",
+
+                        "risk": "Medium",
+
+                        "caption": str(
+                            post.get(
+                                "caption",
+                                ""
+                            )
+                        )[:150]
+
+                    })
 
                 except Exception as item_error:
 
@@ -128,52 +225,59 @@ def scan_instagram():
 
         html = f"""
         <html>
+
         <head>
-            <title>Instagram Monitoring Dashboard</title>
+
+            <title>{brand} Monitoring</title>
 
             <style>
 
                 body {{
-                    font-family: Arial, sans-serif;
-                    margin: 30px;
-                    background: #f8f9fa;
+                    font-family: Arial;
+                    background:#f8f9fa;
+                    margin:30px;
                 }}
 
                 h1 {{
-                    color: #333;
+                    color:#333;
                 }}
 
                 .count {{
-                    margin-bottom: 20px;
-                    font-size: 18px;
-                    font-weight: bold;
+                    margin-bottom:20px;
+                    font-size:20px;
+                    font-weight:bold;
                 }}
 
                 table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    background: white;
+                    width:100%;
+                    border-collapse:collapse;
+                    background:white;
                 }}
 
                 th {{
-                    background: #0d6efd;
-                    color: white;
-                    padding: 12px;
-                    text-align: left;
+                    background:#0d6efd;
+                    color:white;
+                    padding:12px;
+                    text-align:left;
                 }}
 
                 td {{
-                    padding: 10px;
-                    border-bottom: 1px solid #ddd;
+                    padding:10px;
+                    border-bottom:1px solid #ddd;
+                    vertical-align:top;
                 }}
 
                 tr:hover {{
-                    background: #f5f5f5;
+                    background:#f5f5f5;
                 }}
 
                 a {{
-                    color: #0d6efd;
-                    text-decoration: none;
+                    color:#0d6efd;
+                    text-decoration:none;
+                }}
+
+                .brand {{
+                    color:#0d6efd;
                 }}
 
             </style>
@@ -182,11 +286,17 @@ def scan_instagram():
 
         <body>
 
-            <h1>Instagram Brand Monitoring</h1>
+            <h1>{brand} Brand Monitoring</h1>
 
             <div class="count">
                 Total Detections: {len(detections)}
             </div>
+
+            <p>
+                <a href="/dashboard">
+                    ← Back to Dashboard
+                </a>
+            </p>
 
             <table>
 
@@ -196,6 +306,7 @@ def scan_instagram():
                     <th>Brand</th>
                     <th>Risk</th>
                     <th>Score</th>
+                    <th>Caption</th>
                     <th>Post</th>
                 </tr>
         """
@@ -203,25 +314,48 @@ def scan_instagram():
         for item in detections:
 
             html += f"""
+
             <tr>
+
                 <td>{item['platform']}</td>
+
                 <td>{item['username']}</td>
-                <td>{item['detectedBrand']}</td>
-                <td>{item['risk']}</td>
-                <td>{item['matchScore']}</td>
+
                 <td>
-                    <a href="{item['postUrl']}" target="_blank">
+                    <span class="brand">
+                        {item['detectedBrand']}
+                    </span>
+                </td>
+
+                <td>{item['risk']}</td>
+
+                <td>{item['matchScore']}</td>
+
+                <td>{item['caption']}</td>
+
+                <td>
+
+                    <a
+                        href="{item['postUrl']}"
+                        target="_blank"
+                    >
                         View Post
                     </a>
+
                 </td>
+
             </tr>
+
             """
 
         html += """
+
             </table>
 
         </body>
+
         </html>
+
         """
 
         return html
