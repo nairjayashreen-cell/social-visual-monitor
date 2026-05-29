@@ -55,61 +55,6 @@ BRANDS = {
     }
 }
 
-BRAND_KEYWORDS = {
-
-    "ICICI": [
-        "icici",
-        "icici bank",
-        "#icici",
-        "#icicibank"
-    ],
-
-    "Groww": [
-        "groww",
-        "growwofficial",
-        "groww_official",
-        "#groww",
-        "#growwofficial"
-    ],
-
-    "Motilal Oswal": [
-        "motilal",
-        "motilal oswal",
-        "motilaloswal",
-        "#motilaloswal"
-    ],
-
-    "Tata Capital": [
-        "tata capital",
-        "tatacapital",
-        "#tatacapital"
-    ],
-
-    "Zerodha": [
-        "zerodha",
-        "#zerodha"
-    ],
-
-    "Upstox": [
-        "upstox",
-        "#upstox"
-    ],
-
-    "SBI": [
-        "sbi",
-        "state bank of india",
-        "#sbi"
-    ],
-
-    "Anand Rathi": [
-        "anandrathi",
-        "anand rathi",
-        "anandrathiwealth",
-        "#anandrathi",
-        "#anandrathiwealth"
-    ]
-}
-
 # ==========================================
 # HOME
 # ==========================================
@@ -249,81 +194,10 @@ def scan_instagram(brand: str):
                 try:
 
                     caption = str(
-    post.get("caption", "")
-).lower()
+                        post.get("caption", "")
+                    ).replace("\n", " ")
 
-hashtags = [
-    str(h).lower()
-    for h in post.get("hashtags", [])
-]
-
-hashtags_text = " ".join(hashtags)
-
-username = str(
-    post.get("ownerUsername", "")
-).lower()
-
-combined_text = (
-    caption
-    + " "
-    + hashtags_text
-)
-
-keywords = BRAND_KEYWORDS.get(
-    brand,
-    [brand.lower()]
-)
-
-matched = False
-
-for keyword in keywords:
-
-    keyword = keyword.lower()
-
-    if (
-        keyword in combined_text
-        or
-        keyword in username
-        or
-        keyword.replace(" ", "") in combined_text
-    ):
-        matched = True
-        break
-
-if matched:
-
-    caption_display = caption.replace(
-        "\n",
-        " "
-    )
-
-    detections.append({
-
-        "platform": "Instagram",
-
-        "username": post.get(
-            "ownerUsername",
-            "unknown"
-        ),
-
-        "postUrl": post.get(
-            "url",
-            "#"
-        ),
-
-        "detectedBrand": brand,
-
-        "matchScore": "96%",
-
-        "risk": "Medium",
-
-        "description": (
-            caption_display[:120] + "..."
-            if len(caption_display) > 120
-            else caption_display
-        )
-
-    })
+                    detections.append({
 
                         "platform": "Instagram",
 
@@ -426,8 +300,10 @@ if matched:
             <h1>{brand} Brand Monitoring</h1>
 
             <div class="count">
-                Total Detections: {len(detections)}
-            </div>
+    Brand: {brand}<br>
+    Dataset Records: {len(detections)}<br>
+    Posts Displayed: {len(detections)}
+</div>
 
             <p>
                 <a href="/dashboard">
