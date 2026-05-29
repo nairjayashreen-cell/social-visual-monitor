@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from datetime import datetime
 import requests
 import os
 
@@ -178,7 +179,7 @@ def scan_instagram(brand: str):
 
     try:
 
-        response = requests.get(url)
+        total_records = len(data) if isinstance(data, list) else 0.get(url)
         data = response.json()
 
         print("BRAND:", brand)
@@ -299,10 +300,11 @@ def scan_instagram(brand: str):
 
             <h1>{brand} Brand Monitoring</h1>
 
-            <div class="count">
+    <div class="count">
     Brand: {brand}<br>
-    Dataset Records: {len(detections)}<br>
-    Posts Displayed: {len(detections)}
+    Dataset Records: {total_records}<br>
+    Posts Displayed: {len(detections)}<br>
+    Last Updated: {datetime.now().strftime("%d %b %Y %I:%M %p")}
 </div>
 
             <p>
