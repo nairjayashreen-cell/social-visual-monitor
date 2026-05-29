@@ -80,7 +80,7 @@ async def upload_logo(file: UploadFile = File(...)):
     }
 
 # ==========================================
-# BRAND SELECTION PAGE
+# DASHBOARD
 # ==========================================
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -93,13 +93,15 @@ def dashboard():
 
     return f"""
     <html>
+
     <head>
+
         <title>AI Visual Threat Monitoring</title>
 
         <style>
 
             body {{
-                font-family: Arial;
+                font-family: Arial, sans-serif;
                 background:#f5f6fa;
                 padding:40px;
             }}
@@ -129,7 +131,7 @@ def dashboard():
 
     <body>
 
-        <h1>Instagram Brand Monitoring</h1>
+        <h1>Instagram Brand Monitoring Dashboard</h1>
 
         <form action="/scan" method="get">
 
@@ -144,6 +146,7 @@ def dashboard():
         </form>
 
     </body>
+
     </html>
     """
 
@@ -157,30 +160,30 @@ def scan_instagram(brand: str):
     APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
     if not APIFY_TOKEN:
-
         return """
         <h2>Missing APIFY_TOKEN environment variable</h2>
         """
 
     if brand not in BRANDS:
-
         return f"""
         <h2>Unknown Brand: {brand}</h2>
         """
 
     dataset_id = BRANDS[brand]["dataset_id"]
 
-    url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_TOKEN}"
+    url = (
+        f"https://api.apify.com/v2/datasets/"
+        f"{dataset_id}/items?token={APIFY_TOKEN}"
+    )
 
     try:
 
         response = requests.get(url)
-
         data = response.json()
 
-        print("SELECTED BRAND:", brand)
+        print("BRAND:", brand)
         print("DATASET:", dataset_id)
-        print("TOTAL RECORDS:", len(data) if isinstance(data, list) else 0)
+        print("DATA TYPE:", type(data))
 
         detections = []
 
@@ -189,6 +192,10 @@ def scan_instagram(brand: str):
             for post in data:
 
                 try:
+
+                    caption = str(
+                        post.get("caption", "")
+                    ).replace("\n", " ")
 
                     detections.append({
 
@@ -210,20 +217,23 @@ def scan_instagram(brand: str):
 
                         "risk": "Medium",
 
-                        "caption": str(
-                            post.get(
-                                "caption",
-                                ""
-                            )
-                        )[:150]
+                        "description": (
+                            caption[:120] + "..."
+                            if len(caption) > 120
+                            else caption
+                        )
 
                     })
 
                 except Exception as item_error:
 
-                    print("ITEM ERROR:", item_error)
+                    print(
+                        "ITEM ERROR:",
+                        item_error
+                    )
 
         html = f"""
+
         <html>
 
         <head>
@@ -233,7 +243,7 @@ def scan_instagram(brand: str):
             <style>
 
                 body {{
-                    font-family: Arial;
+                    font-family: Arial, sans-serif;
                     background:#f8f9fa;
                     margin:30px;
                 }}
@@ -278,6 +288,7 @@ def scan_instagram(brand: str):
 
                 .brand {{
                     color:#0d6efd;
+                    font-weight:bold;
                 }}
 
             </style>
@@ -304,11 +315,12 @@ def scan_instagram(brand: str):
                     <th>Platform</th>
                     <th>Username</th>
                     <th>Brand</th>
+                    <th>Description</th>
                     <th>Risk</th>
                     <th>Score</th>
-                    <th>Caption</th>
                     <th>Post</th>
                 </tr>
+
         """
 
         for item in detections:
@@ -327,11 +339,11 @@ def scan_instagram(brand: str):
                     </span>
                 </td>
 
+                <td>{item['description']}</td>
+
                 <td>{item['risk']}</td>
 
                 <td>{item['matchScore']}</td>
-
-                <td>{item['caption']}</td>
 
                 <td>
 
