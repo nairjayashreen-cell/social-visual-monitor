@@ -30,28 +30,28 @@ uploaded_logo = None
 
 BRANDS = {
     "ICICI": {
-        "dataset_id": "rCSm3WSZI7CLbQO9V"
+        "dataset_id": "kEaw2FDvOje5FYEH8"
     },
     "Groww": {
-        "dataset_id": "UM5FgBJEDue5cHdDn"
+        "dataset_id": "UXNdHqAR3NV84I4yK"
     },
     "Motilal Oswal": {
-        "dataset_id": "UHe54nGhYCKmay4fG"
+        "dataset_id": "jxqI2FhmwKxANA7ID"
     },
     "Tata Capital": {
-        "dataset_id": "GNJaaAzrwYm5aKBeT"
+        "dataset_id": "0lPf4mavgwrO3Htde"
     },
     "Zerodha": {
-        "dataset_id": "ulvEkheIxIfMvTBle"
+        "dataset_id": "nHeWy0j1RLe9eyKVD"
     },
     "Upstox": {
-        "dataset_id": "Pm3tYd3dHjjwQy4eT"
+        "dataset_id": "s2xel18LTiGzunXjS"
     },
     "SBI": {
-        "dataset_id": "Cu5JITs5mi2z2OJQh"
+        "dataset_id": "bwXcVBwdWc6OvnSmU"
     },
     "Anand Rathi": {
-        "dataset_id": "bKFdqpdhW37BOKOb7"
+        "dataset_id": "WaccQaOU5HTHAgRAr"
     }
 }
 
