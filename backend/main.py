@@ -6,6 +6,11 @@ from zoneinfo import ZoneInfo
 import requests
 import os
 
+import cv2
+import numpy as np
+from skimage.metrics import structural_similarity as ssim
+from PIL import Image
+
 app = FastAPI()
 
 # ==========================================
@@ -25,6 +30,54 @@ app.add_middleware(
 # ==========================================
 
 uploaded_logo = None
+
+def compare_logo(logo_path, image_path):
+
+    try:
+
+        logo = cv2.imread(logo_path)
+        image = cv2.imread(image_path)
+
+        if logo is None or image is None:
+            return 0
+
+        logo_gray = cv2.cvtColor(
+            logo,
+            cv2.COLOR_BGR2GRAY
+        )
+
+        image_gray = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2GRAY
+        )
+
+        image_gray = cv2.resize(
+            image_gray,
+            (
+                logo_gray.shape[1],
+                logo_gray.shape[0]
+            )
+        )
+
+        score, _ = ssim(
+            logo_gray,
+            image_gray,
+            full=True
+        )
+
+        return round(score * 100, 2)
+
+    except:
+        return 0
+
+def download_image(url, filename):
+
+    response = requests.get(url)
+
+    with open(filename, "wb") as f:
+        f.write(response.content)
+
+    return filename
 
 # ==========================================
 # BRAND CONFIGURATION
