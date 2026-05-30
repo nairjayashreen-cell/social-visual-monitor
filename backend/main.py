@@ -425,12 +425,12 @@ def scan_instagram(brand: str):
         """
         
         detections.sort(
-    key=lambda x: float(
-        str(x["matchScore"]).replace("%", "")
-    ),
-    reverse=True
-)
-
+            key=lambda x: float(
+                str(x["matchScore"]).replace("%", "")
+            ),
+            reverse=True
+        )
+		
         for item in detections:
 
             html += f"""
