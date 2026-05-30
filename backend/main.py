@@ -299,7 +299,14 @@ def scan_instagram(brand: str):
 
                         "matchScore": f"{score}%",
 
-                        "risk": "Medium",
+                        if score >= 70:
+                        risk = "High"
+
+                        elif score >= 40:
+                        risk = "Medium"
+
+                        else:
+                        risk = "Low"
 
                         "description": (
                             caption[:120] + "..."
