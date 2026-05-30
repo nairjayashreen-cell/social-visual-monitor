@@ -73,12 +73,21 @@ def home():
 
 @app.post("/upload")
 async def upload_logo(file: UploadFile = File(...)):
+
     global uploaded_logo
 
-    uploaded_logo = file.filename
+    os.makedirs("uploads", exist_ok=True)
+
+    filepath = f"uploads/{file.filename}"
+
+    with open(filepath, "wb") as buffer:
+        buffer.write(await file.read())
+
+    uploaded_logo = filepath
 
     return {
-        "message": "Reference creative uploaded successfully"
+        "message": "Logo uploaded successfully",
+        "file": filepath
     }
 
 # ==========================================
