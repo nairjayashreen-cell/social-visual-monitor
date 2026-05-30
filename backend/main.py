@@ -177,17 +177,17 @@ def scan_instagram(brand: str):
         f"{dataset_id}/items?token={APIFY_TOKEN}"
     )
 
-try:
-    response = requests.get(url)
-    data = response.json()
+    try:
 
-    total_records = len(data) if isinstance(data, list) else 0
+        response = requests.get(url)
+        data = response.json()
+        total_records = len(data) if isinstance(data, list) else 0
 
-    print("BRAND:", brand)
-    print("DATASET:", dataset_id)
-    print("DATA TYPE:", type(data))
+        print("BRAND:", brand)
+        print("DATASET:", dataset_id)
+        print("DATA TYPE:", type(data))
 
-    detections = []
+        detections = []
 
         if isinstance(data, list):
 
@@ -301,7 +301,7 @@ try:
 
             <h1>{brand} Brand Monitoring</h1>
 
-    <div class="count">
+        <div class="count">
     Brand: {brand}<br>
     Dataset Records: {total_records}<br>
     Posts Displayed: {len(detections)}<br>
