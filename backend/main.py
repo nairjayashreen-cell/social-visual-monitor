@@ -179,8 +179,10 @@ def scan_instagram(brand: str):
 
     try:
 
-        total_records = len(data) if isinstance(data, list) else 0.get(url)
-        data = response.json()
+    response = requests.get(url)
+    data = response.json()
+
+    total_records = len(data) if isinstance(data, list) else 0
 
         print("BRAND:", brand)
         print("DATASET:", dataset_id)
