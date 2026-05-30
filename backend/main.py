@@ -5,6 +5,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests
 import os
+import pandas as pd
+from fastapi.responses import FileResponse
 
 import cv2
 import numpy as np
@@ -476,7 +478,7 @@ def scan_instagram(brand: str):
 
         """
 
-        return html
+                return html
 
     except Exception as e:
 
@@ -486,3 +488,14 @@ def scan_instagram(brand: str):
         <h2>Error</h2>
         <p>{str(e)}</p>
         """
+
+# ==========================================
+# EXPORT EXCEL
+# ==========================================
+
+@app.get("/export")
+def export_excel(brand: str):
+
+    return {
+        "message": f"Export endpoint working for {brand}"
+    }
