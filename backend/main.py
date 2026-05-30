@@ -247,6 +247,7 @@ def scan_instagram(brand: str):
         total_records = len(data) if isinstance(data, list) else 0
 
         print("BRAND:", brand)
+        print("UPLOADED LOGO:", uploaded_logo)
         print("DATASET:", dataset_id)
         print("DATA TYPE:", type(data))
 
