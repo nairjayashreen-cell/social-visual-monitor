@@ -324,7 +324,11 @@ def scan_instagram(brand: str):
                         item_error
                     )
 
+		
+
         html = f"""
+        
+        
 
         <html>
 
@@ -417,6 +421,13 @@ def scan_instagram(brand: str):
                 </tr>
 
         """
+        
+        detections.sort(
+    key=lambda x: float(
+        str(x["matchScore"]).replace("%", "")
+    ),
+    reverse=True
+)
 
         for item in detections:
 
