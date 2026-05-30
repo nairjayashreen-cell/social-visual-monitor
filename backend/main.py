@@ -280,6 +280,12 @@ def scan_instagram(brand: str):
                             uploaded_logo,
                             downloaded_image
                         )
+                    if score >= 70:
+                        risk = "High"
+                    elif score >= 40:
+                        risk = "Medium"
+                    else:
+                        risk = "Low"
 
                     detections.append({
 
@@ -299,14 +305,7 @@ def scan_instagram(brand: str):
 
                         "matchScore": f"{score}%",
 
-                        if score >= 70:
-                        risk = "High"
-
-                        elif score >= 40:
-                        risk = "Medium"
-
-                        else:
-                        risk = "Low"
+                        "risk": risk,
 
                         "description": (
                             caption[:120] + "..."
@@ -315,7 +314,8 @@ def scan_instagram(brand: str):
                         )
 
                     })
-
+                    
+                    
                 except Exception as item_error:
 
                     print(
