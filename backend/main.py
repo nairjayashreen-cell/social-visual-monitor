@@ -259,10 +259,26 @@ def scan_instagram(brand: str):
                 try:
 
                     caption = str(
-                        post.get("caption", "")
-                    ).replace("\n", " ")
+    post.get("caption", "")
+).replace("\n", " ")
 
-                    detections.append({
+image_url = post.get("displayUrl", "")
+
+score = 0
+
+if uploaded_logo and image_url:
+
+    downloaded_image = download_image(
+        image_url,
+        "temp_image.jpg"
+    )
+
+    score = compare_logo(
+        uploaded_logo,
+        downloaded_image
+    )
+
+detections.append({
 
                         "platform": "Instagram",
 
@@ -278,7 +294,7 @@ def scan_instagram(brand: str):
 
                         "detectedBrand": brand,
 
-                        "matchScore": "96%",
+                        "matchScore": f"{score}%",
 
                         "risk": "Medium",
 
