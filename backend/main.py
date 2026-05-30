@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import requests
 import os
 
@@ -305,7 +306,7 @@ def scan_instagram(brand: str):
     Brand: {brand}<br>
     Dataset Records: {total_records}<br>
     Posts Displayed: {len(detections)}<br>
-    Last Updated: {datetime.now().strftime("%d %b %Y %I:%M %p")}
+    Last Updated: {datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y %I:%M %p IST")}
 </div>
 
             <p>
