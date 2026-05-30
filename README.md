@@ -1,11 +1,20 @@
-# Social Visual Monitor Upgrade
+# AI Visual Threat Monitoring
 
-## Features
-- Instagram scraping via Apify
-- Logo upload
-- OpenCV image similarity matching
-- Google Vision integration
-- Real Instagram post URL monitoring
+## Current Version
+MVP v1.0 – Multi Brand Instagram Monitoring
 
-## Render Start Command
-cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+### Features
+- Multi-brand Instagram monitoring
+- ICICI
+- Groww
+- Motilal Oswal
+- Tata Capital
+- Zerodha
+- Upstox
+- SBI
+- Anand Rathi
+- Apify integration
+- Render deployment
+- Dashboard reporting
+- Post URL tracking
+- IST timestamps
