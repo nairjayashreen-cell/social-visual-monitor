@@ -259,26 +259,29 @@ def scan_instagram(brand: str):
                 try:
 
                     caption = str(
-    post.get("caption", "")
-).replace("\n", " ")
+                        post.get("caption", "")
+                    ).replace("\n", " ")
 
-image_url = post.get("displayUrl", "")
+                    image_url = post.get(
+                        "displayUrl",
+                        ""
+                    )
 
-score = 0
+                    score = 0
 
-if uploaded_logo and image_url:
+                    if uploaded_logo and image_url:
 
-    downloaded_image = download_image(
-        image_url,
-        "temp_image.jpg"
-    )
+                        downloaded_image = download_image(
+                            image_url,
+                            "temp_image.jpg"
+                        )
 
-    score = compare_logo(
-        uploaded_logo,
-        downloaded_image
-    )
+                        score = compare_logo(
+                            uploaded_logo,
+                            downloaded_image
+                        )
 
-detections.append({
+                    detections.append({
 
                         "platform": "Instagram",
 
