@@ -259,14 +259,18 @@ def scan_instagram(brand: str):
 
             for post in data:
 
-                try:
+                                try:
 
                     caption = str(
                         post.get("caption", "")
                     ).replace("\n", " ")
 
-    published_date = post.get("timestamp", "")
-    print("POST DATE:", published_date)
+                    published_date = post.get(
+                        "timestamp",
+                        ""
+                    )
+
+                    print("POST DATE:", published_date)
 
                     image_url = post.get(
                         "displayUrl",
@@ -302,7 +306,7 @@ def scan_instagram(brand: str):
                             "unknown"
                         ),
 
-						"publishedDate": published_date,
+                        "publishedDate": published_date,
 
                         "postUrl": post.get(
                             "url",
@@ -486,7 +490,7 @@ def scan_instagram(brand: str):
 
         """
 
-    return html
+        return html
 
     except Exception as e:
 
