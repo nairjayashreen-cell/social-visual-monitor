@@ -259,16 +259,13 @@ def scan_instagram(brand: str):
 
             for post in data:
 
-                                try:
+                try:
 
                     caption = str(
                         post.get("caption", "")
                     ).replace("\n", " ")
 
-                    published_date = post.get(
-                        "timestamp",
-                        ""
-                    )
+                    published_date = post.get("timestamp", "")
 
                     print("POST DATE:", published_date)
 
@@ -507,6 +504,125 @@ def scan_instagram(brand: str):
 @app.get("/export")
 def export_excel(brand: str):
 
-    return {
-        "message": f"Export endpoint working for {brand}"
-    }
+    APIFY_TOKEN = os.getenv("APIFY_TOKEN")
+
+    if not APIFY_TOKEN:
+        return {"error": "Missing APIFY_TOKEN environment variable"}
+
+    if brand not in BRANDS:
+        return {"error": f"Unknown brand: {brand}"}
+
+    dataset_id = BRANDS[brand]["dataset_id"]
+
+    url = (
+        f"https://api.apify.com/v2/datasets/"
+        f"{dataset_id}/items?token={APIFY_TOKEN}"
+    )
+
+    try:
+
+        response = requests.get(url)
+        data = response.json()
+
+        detections = []
+
+        if isinstance(data, list):
+
+            for post in data:
+
+                try:
+
+                    caption = str(
+                        post.get("caption", "")
+                    ).replace("\n", " ")
+
+                    published_date = post.get("timestamp", "")
+
+                    image_url = post.get("displayUrl", "")
+
+                    score = 0
+
+                    if uploaded_logo and image_url:
+
+                        downloaded_image = download_image(
+                            image_url,
+                            "temp_image.jpg"
+                        )
+
+                        score = compare_logo(
+                            uploaded_logo,
+                            downloaded_image
+                        )
+
+                    if score >= 70:
+                        risk = "High"
+                    elif score >= 40:
+                        risk = "Medium"
+                    else:
+                        risk = "Low"
+
+                    detections.append({
+                        "Platform": "Instagram",
+                        "Username": post.get("ownerUsername", "unknown"),
+                        "Published Date": published_date,
+                        "Post URL": post.get("url", ""),
+                        "Detected Brand": brand,
+                        "Match Score": f"{score}%",
+                        "Risk": risk,
+                        "Description": (
+                            caption[:120] + "..."
+                            if len(caption) > 120
+                            else caption
+                        )
+                    })
+
+                except Exception as item_error:
+                    print("ITEM ERROR:", item_error)
+
+        # Sort by match score descending
+        detections.sort(
+            key=lambda x: float(
+                str(x["Match Score"]).replace("%", "")
+            ),
+            reverse=True
+        )
+
+        df = pd.DataFrame(detections)
+
+        os.makedirs("exports", exist_ok=True)
+
+        timestamp = datetime.now(
+            ZoneInfo("Asia/Kolkata")
+        ).strftime("%Y%m%d_%H%M%S")
+
+        filename = f"exports/{brand}_monitoring_{timestamp}.xlsx"
+
+        with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+
+            df.to_excel(writer, index=False, sheet_name="Detections")
+
+            worksheet = writer.sheets["Detections"]
+
+            # Auto-fit column widths
+            for col in worksheet.columns:
+                max_length = max(
+                    len(str(cell.value)) if cell.value else 0
+                    for cell in col
+                )
+                col_letter = col[0].column_letter
+                worksheet.column_dimensions[col_letter].width = min(
+                    max_length + 4, 60
+                )
+
+        return FileResponse(
+            path=filename,
+            filename=f"{brand}_monitoring_{timestamp}.xlsx",
+            media_type=(
+                "application/vnd.openxmlformats-"
+                "officedocument.spreadsheetml.sheet"
+            )
+        )
+
+    except Exception as e:
+        print("EXPORT ERROR:", e)
+        return {"error": str(e)}
