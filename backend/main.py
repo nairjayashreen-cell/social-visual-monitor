@@ -265,6 +265,10 @@ def scan_instagram(brand: str):
                         post.get("caption", "")
                     ).replace("\n", " ")
 
+					published_date = post.get("timestamp", "")
+					
+					print("POST DATE:", published_date)
+
                     image_url = post.get(
                         "displayUrl",
                         ""
@@ -298,6 +302,8 @@ def scan_instagram(brand: str):
                             "ownerUsername",
                             "unknown"
                         ),
+
+						"publishedDate": published_date,
 
                         "postUrl": post.get(
                             "url",
