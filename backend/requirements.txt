@@ -5,6 +5,7 @@ opencv-python
 pytesseract
 pillow
 numpy
+openpyxl
 pandas
 requests
 beautifulsoup4
