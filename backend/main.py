@@ -265,9 +265,8 @@ def scan_instagram(brand: str):
                         post.get("caption", "")
                     ).replace("\n", " ")
 
-					published_date = post.get("timestamp", "")
-					
-					print("POST DATE:", published_date)
+    published_date = post.get("timestamp", "")
+    print("POST DATE:", published_date)
 
                     image_url = post.get(
                         "displayUrl",
@@ -332,7 +331,7 @@ def scan_instagram(brand: str):
                         item_error
                     )
 
-		
+       
 
         html = f"""
         
@@ -421,6 +420,7 @@ def scan_instagram(brand: str):
                 <tr>
                     <th>Platform</th>
                     <th>Username</th>
+                    <th>Published Date</th>
                     <th>Brand</th>
                     <th>Description</th>
                     <th>Risk</th>
@@ -436,7 +436,7 @@ def scan_instagram(brand: str):
             ),
             reverse=True
         )
-		
+      
         for item in detections:
 
             html += f"""
@@ -446,6 +446,8 @@ def scan_instagram(brand: str):
                 <td>{item['platform']}</td>
 
                 <td>{item['username']}</td>
+                
+                <td>{item['publishedDate']}</td>
 
                 <td>
                     <span class="brand">
@@ -484,7 +486,7 @@ def scan_instagram(brand: str):
 
         """
 
-                return html
+    return html
 
     except Exception as e:
 
