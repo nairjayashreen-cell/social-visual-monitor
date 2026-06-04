@@ -362,6 +362,41 @@ BRANDS = {
 PLATFORMS = ["instagram", "facebook", "linkedin"]
 PLATFORM_DISPLAY = {"instagram": "Instagram", "facebook": "Facebook", "linkedin": "LinkedIn"}
 
+# Default logo files bundled in the repo under logos/
+# Used as fallback when no logo has been uploaded via the dashboard
+BRAND_LOGOS = {
+    # Stems matched to actual filenames in the logos/ folder in the repo
+    # get_effective_logo() tries .png .jpg .jpeg .webp automatically
+    "ICICI":         "logos/icici",
+    "Groww":         "logos/groww",
+    "Motilal Oswal": "logos/motilal_oswal",
+    "Tata Capital":  "logos/tata_capital",
+    "Zerodha":       "logos/zerodha",
+    "Upstox":        "logos/upstox",
+    "SBI":           "logos/sbi",
+    "Anand Rathi":   "logos/anand_rathi_logo",
+}
+
+def get_effective_logo(brand=None):
+    """
+    Returns the best available logo path:
+    1. Uploaded logo (from /tmp) — user's custom upload, highest priority
+    2. Bundled brand logo (from logos/ folder) — tries all common extensions
+    3. None — no logo configured
+    """
+    uploaded = get_logo_path()
+    if uploaded:
+        return uploaded
+    if brand and brand in BRAND_LOGOS:
+        base = BRAND_LOGOS[brand]          # e.g. "logos/icici.png"
+        stem = os.path.splitext(base)[0]   # e.g. "logos/icici"
+        for ext in [".png", ".jpg", ".jpeg", ".webp"]:
+            candidate = stem + ext
+            if os.path.exists(candidate):
+                print(f"LOGO FALLBACK — using bundled logo: {candidate}")
+                return candidate
+    return None
+
 RISK_COLOR = {"High": "#dc3545", "Medium": "#fd7e14", "Low": "#198754"}
 
 def risk_badge(level):
@@ -684,7 +719,7 @@ def scan(brand: str, platform: str = "instagram"):
         Add the Apify dataset ID to the BRANDS config in main.py.</div>
         <a class="btn btn-gray" href="/dashboard">← Dashboard</a></div></body></html>"""
 
-    logo_path = get_logo_path()
+    logo_path = get_effective_logo(brand)
 
     try:
         detections, total_records = fetch_and_score(dataset_id, platform, brand, logo_path, APIFY_TOKEN)
