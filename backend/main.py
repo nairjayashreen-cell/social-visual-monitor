@@ -208,13 +208,28 @@ def compare_logo(logo_path, image_path):
         print("COMPARE ERROR:", e)
         return 0.0, 0.0, 0.0, "Low"
 
-def download_image(url):
+def download_image(url, suffix="0"):
     try:
-        r = requests.get(url, timeout=15)
-        with open(TEMP_IMAGE, "wb") as f:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        }
+        r = requests.get(url, timeout=20, headers=headers)
+        if r.status_code != 200:
+            print(f"DOWNLOAD FAILED: HTTP {r.status_code} — {url[:80]}")
+            return None
+        if len(r.content) < 1000:
+            print(f"DOWNLOAD TOO SMALL: {len(r.content)} bytes — likely blocked")
+            return None
+        path = f"/tmp/post_img_{suffix}.jpg"
+        with open(path, "wb") as f:
             f.write(r.content)
-        return TEMP_IMAGE
-    except Exception:
+        return path
+    except Exception as e:
+        print(f"DOWNLOAD ERROR: {e} — {url[:80]}")
         return None
 
 def fmt_date(raw):
@@ -264,8 +279,11 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
     if not isinstance(data, list):
         return [], 0
 
+    print(f"SCAN START — brand={brand} platform={platform} posts={len(data)}")
+    print(f"SCAN LOGO  — logo_path={logo_path!r} exists={logo_path and os.path.exists(logo_path)}")
+
     detections = []
-    for post in data:
+    for idx, post in enumerate(data):
         try:
             caption = str(post.get("caption", "")).replace("\n", " ")
             raw_date = post.get("timestamp", "")
@@ -286,10 +304,18 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
 
             s = h = c = 0.0
             risk = "Low"
-            if logo_path and image_url:
-                img_path = download_image(image_url)
+            if not logo_path:
+                if idx == 0:
+                    print("SCORE SKIP — no logo_path set")
+            elif not image_url:
+                print(f"SCORE SKIP [{idx}] {username} — no image_url in post data")
+            else:
+                img_path = download_image(image_url, suffix=str(idx))
                 if img_path:
                     s, h, c, risk = compare_logo(logo_path, img_path)
+                    print(f"SCORED [{idx}] {username} — ssim={s} hash={h} combined={c} risk={risk}")
+                else:
+                    print(f"SCORE SKIP [{idx}] {username} — download returned None")
 
             detections.append({
                 "platform":      PLATFORM_DISPLAY[platform],
@@ -304,8 +330,9 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
                 "description":   caption[:120] + "…" if len(caption) > 120 else caption,
             })
         except Exception as e:
-            print(f"ITEM ERROR [{platform}]:", e)
+            print(f"ITEM ERROR [{platform}] idx={idx}:", e)
 
+    print(f"SCAN DONE  — {len(detections)} detections")
     return detections, len(data)
 
 # ─────────────────────────────────────────
@@ -372,6 +399,24 @@ def nav_html(active="dashboard"):
 @app.get("/")
 def home():
     return {"status": "AI Visual Threat Monitoring v1.9"}
+
+# ── Debug ────────────────────────────────
+@app.get("/debug")
+def debug():
+    logo_path = get_logo_path()
+    tmp_files = os.listdir("/tmp") if os.path.exists("/tmp") else []
+    upload_files = os.listdir("/tmp/uploads") if os.path.exists("/tmp/uploads") else []
+    logo_size = os.path.getsize(logo_path) if logo_path and os.path.exists(logo_path) else 0
+    return {
+        "logo_path":       logo_path,
+        "logo_exists":     bool(logo_path and os.path.exists(logo_path)),
+        "logo_size_bytes": logo_size,
+        "logo_state_file_exists": os.path.exists(LOGO_STATE_FILE),
+        "logo_state_contents": open(LOGO_STATE_FILE).read() if os.path.exists(LOGO_STATE_FILE) else None,
+        "tmp_uploads":     upload_files,
+        "tmp_files":       [f for f in tmp_files if not f.startswith(".")],
+        "worker_pid":      os.getpid(),
+    }
 
 # ── Upload ──────────────────────────────
 
