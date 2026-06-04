@@ -290,9 +290,21 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
             published_date = fmt_date(raw_date)
 
             if platform == "instagram":
-                image_url = post.get("displayUrl", "") or post.get("imageUrl", "")
-                username  = post.get("ownerUsername", "unknown")
-                post_url  = post.get("url", "#")
+                # Priority order:
+                # 1. images[] — Apify stores resized copies on apify.com (always accessible)
+                # 2. latestImagesToDownload — another Apify storage field
+                # 3. displayUrl — Instagram CDN (blocked on servers, kept as last resort)
+                apify_images = post.get("images") or []
+                latest_imgs  = post.get("latestImagesToDownload") or []
+                image_url = (
+                    (apify_images[0].get("url", "") if apify_images and isinstance(apify_images[0], dict) else "")
+                    or (apify_images[0] if apify_images and isinstance(apify_images[0], str) else "")
+                    or (latest_imgs[0] if latest_imgs and isinstance(latest_imgs[0], str) else "")
+                    or post.get("displayUrl", "")
+                    or post.get("imageUrl", "")
+                )
+                username = post.get("ownerUsername", "unknown")
+                post_url = post.get("url", "#")
             elif platform == "facebook":
                 image_url = (post.get("media") or [{}])[0].get("url", "") or post.get("imageUrl", "")
                 username  = post.get("pageName", "") or post.get("authorName", "unknown")
@@ -401,6 +413,34 @@ def home():
     return {"status": "AI Visual Threat Monitoring v1.9"}
 
 # ── Debug ────────────────────────────────
+
+@app.get("/debug-post")
+def debug_post(brand: str = "ICICI", platform: str = "instagram"):
+    """Shows raw Apify fields for the first post — use this to find the image URL field."""
+    APIFY_TOKEN = os.getenv("APIFY_TOKEN")
+    if not APIFY_TOKEN:
+        return {"error": "Missing APIFY_TOKEN"}
+    dataset_id = BRANDS.get(brand, {}).get(platform, "")
+    if not dataset_id:
+        return {"error": "No dataset configured"}
+    url  = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_TOKEN}&limit=1"
+    data = requests.get(url, timeout=20).json()
+    if not data:
+        return {"error": "Empty dataset"}
+    post = data[0]
+    # Show all fields and their types/preview values
+    summary = {}
+    for k, v in post.items():
+        if isinstance(v, str):
+            summary[k] = v[:120]
+        elif isinstance(v, list):
+            summary[k] = f"list[{len(v)}]: {str(v[:2])[:200]}"
+        elif isinstance(v, dict):
+            summary[k] = f"dict keys: {list(v.keys())[:10]}"
+        else:
+            summary[k] = repr(v)[:120]
+    return {"brand": brand, "platform": platform, "first_post_fields": summary}
+
 @app.get("/debug")
 def debug():
     logo_path = get_logo_path()
