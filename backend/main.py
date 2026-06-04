@@ -349,14 +349,14 @@ def now_ts():
 # ─────────────────────────────────────────
 
 BRANDS = {
-    "ICICI":         {"instagram": "kEaw2FDvOje5FYEH8", "facebook": "", "linkedin": ""},
-    "Groww":         {"instagram": "UXNdHqAR3NV84I4yK", "facebook": "", "linkedin": ""},
-    "Motilal Oswal": {"instagram": "jxqI2FhmwKxANA7ID", "facebook": "", "linkedin": ""},
-    "Tata Capital":  {"instagram": "0lPf4mavgwrO3Htde", "facebook": "", "linkedin": ""},
-    "Zerodha":       {"instagram": "nHeWy0j1RLe9eyKVD", "facebook": "", "linkedin": ""},
-    "Upstox":        {"instagram": "s2xel18LTiGzunXjS", "facebook": "", "linkedin": ""},
-    "SBI":           {"instagram": "bwXcVBwdWc6OvnSmU", "facebook": "", "linkedin": ""},
-    "Anand Rathi":   {"instagram": "WaccQaOU5HTHAgRAr", "facebook": "", "linkedin": ""},
+    "ICICI":         {"instagram": "PATavqgLW7SsQhtH1", "facebook": "", "linkedin": ""},
+    "Groww":         {"instagram": "E5X98iyKXmjN0WJBd", "facebook": "", "linkedin": ""},
+    "Motilal Oswal": {"instagram": "DeK7uR4YafleAnnXG", "facebook": "", "linkedin": ""},
+    "Tata Capital":  {"instagram": "985UpuFr2a5EnnSal", "facebook": "", "linkedin": ""},
+    "Zerodha":       {"instagram": "aeZlx2bavuSezbBsd", "facebook": "", "linkedin": ""},
+    "Upstox":        {"instagram": "JpjzemyvarleuBtRV", "facebook": "", "linkedin": ""},
+    "SBI":           {"instagram": "sYb8wItw9rP48Hb88", "facebook": "", "linkedin": ""},
+    "Anand Rathi":   {"instagram": "zzkpFEaglOX96YtKE", "facebook": "", "linkedin": ""},
 }
 
 PLATFORMS = ["instagram", "facebook", "linkedin"]
