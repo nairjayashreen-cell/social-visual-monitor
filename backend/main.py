@@ -208,29 +208,128 @@ def compare_logo(logo_path, image_path):
         print("COMPARE ERROR:", e)
         return 0.0, 0.0, 0.0, "Low"
 
-def download_image(url, suffix="0"):
+def fetch_og_image_via_apify(post_url, apify_token):
+    """
+    Use Apify's cheerio-scraper to fetch the Instagram post page
+    and extract the og:image URL. Apify's servers have Instagram access.
+    Returns an image URL string or None.
+    """
     try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
+        # Start a cheerio-scraper run to extract og:image from the post page
+        run_resp = requests.post(
+            "https://api.apify.com/v2/acts/apify~cheerio-scraper/runs",
+            params={"token": apify_token},
+            json={
+                "startUrls": [{"url": post_url}],
+                "pageFunction": """async function pageFunction(context) {
+                    const { $ } = context;
+                    const ogImage = $('meta[property="og:image"]').attr('content') || '';
+                    return { ogImage };
+                }""",
+                "maxRequestsPerCrawl": 1,
+                "maxConcurrency": 1,
+            },
+            timeout=15,
+        )
+        if run_resp.status_code not in (200, 201):
+            print(f"OG-IMAGE RUN FAIL: {run_resp.status_code}")
+            return None
+
+        run_id = run_resp.json().get("data", {}).get("id")
+        if not run_id:
+            return None
+
+        # Poll for completion (max 30s)
+        import time
+        for _ in range(15):
+            time.sleep(2)
+            status_resp = requests.get(
+                f"https://api.apify.com/v2/acts/apify~cheerio-scraper/runs/{run_id}",
+                params={"token": apify_token},
+                timeout=10,
             )
-        }
-        r = requests.get(url, timeout=20, headers=headers)
-        if r.status_code != 200:
-            print(f"DOWNLOAD FAILED: HTTP {r.status_code} — {url[:80]}")
+            status = status_resp.json().get("data", {}).get("status", "")
+            if status in ("SUCCEEDED", "FAILED", "ABORTED"):
+                break
+
+        if status != "SUCCEEDED":
+            print(f"OG-IMAGE RUN STATUS: {status}")
             return None
-        if len(r.content) < 1000:
-            print(f"DOWNLOAD TOO SMALL: {len(r.content)} bytes — likely blocked")
-            return None
-        path = f"/tmp/post_img_{suffix}.jpg"
-        with open(path, "wb") as f:
-            f.write(r.content)
-        return path
+
+        # Fetch dataset results
+        dataset_id = status_resp.json()["data"]["defaultDatasetId"]
+        items_resp = requests.get(
+            f"https://api.apify.com/v2/datasets/{dataset_id}/items",
+            params={"token": apify_token},
+            timeout=10,
+        )
+        items = items_resp.json()
+        if items and isinstance(items, list):
+            og_image = items[0].get("ogImage", "")
+            if og_image:
+                print(f"OG-IMAGE FOUND: {og_image[:80]}")
+                return og_image
     except Exception as e:
-        print(f"DOWNLOAD ERROR: {e} — {url[:80]}")
+        print(f"OG-IMAGE ERROR: {e}")
+    return None
+
+
+def download_image(url, suffix="0", post_url="", is_instagram=False):
+    """
+    Download a post image with three fallback methods:
+    1. Apify residential proxy  — needed for Instagram CDN (scontent-*.cdninstagram.com)
+    2. Direct with browser UA   — works for Facebook / LinkedIn CDNs
+    3. Skip and log
+    Now that images[] is populated in Apify datasets, url is a real CDN image URL.
+    """
+    if not url:
+        print(f"DOWNLOAD SKIP [{suffix}] — no URL")
         return None
+
+    APIFY_TOKEN = os.getenv("APIFY_TOKEN", "")
+    is_ig_cdn   = "cdninstagram.com" in url or "fbcdn.net" in url
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )
+    }
+    path = f"/tmp/post_img_{suffix}.jpg"
+
+    # ── Method 1: Apify proxy (Instagram CDN requires residential IP) ──────
+    if is_ig_cdn and APIFY_TOKEN:
+        try:
+            import urllib3; urllib3.disable_warnings()
+            proxy_url = f"http://auto:{APIFY_TOKEN}@proxy.apify.com:8000"
+            proxies   = {"http": proxy_url, "https": proxy_url}
+            r = requests.get(url, timeout=30, headers=headers,
+                             proxies=proxies, verify=False)
+            if r.status_code == 200 and len(r.content) > 1000:
+                with open(path, "wb") as f:
+                    f.write(r.content)
+                print(f"DOWNLOAD OK [proxy] [{suffix}] size={len(r.content)}")
+                return path
+            else:
+                print(f"DOWNLOAD PROXY FAIL: HTTP {r.status_code} size={len(r.content)}")
+        except Exception as e:
+            print(f"DOWNLOAD PROXY ERROR: {e}")
+
+    # ── Method 2: Direct (Facebook / LinkedIn CDNs) ───────────────────────
+    try:
+        r = requests.get(url, timeout=20, headers=headers)
+        if r.status_code == 200 and len(r.content) > 1000:
+            with open(path, "wb") as f:
+                f.write(r.content)
+            print(f"DOWNLOAD OK [direct] [{suffix}] size={len(r.content)}")
+            return path
+        else:
+            print(f"DOWNLOAD DIRECT FAIL: HTTP {r.status_code} — {url[:80]}")
+    except Exception as e:
+        print(f"DOWNLOAD DIRECT ERROR: {e} — {url[:80]}")
+
+    return None
 
 def fmt_date(raw):
     try:
@@ -290,16 +389,12 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
             published_date = fmt_date(raw_date)
 
             if platform == "instagram":
-                # Priority order:
-                # 1. images[] — Apify stores resized copies on apify.com (always accessible)
-                # 2. latestImagesToDownload — another Apify storage field
-                # 3. displayUrl — Instagram CDN (blocked on servers, kept as last resort)
+                # images[] is populated when extendOutputFunction is used in Apify
+                # Falls back to displayUrl if images[] is empty
                 apify_images = post.get("images") or []
-                latest_imgs  = post.get("latestImagesToDownload") or []
                 image_url = (
-                    (apify_images[0].get("url", "") if apify_images and isinstance(apify_images[0], dict) else "")
-                    or (apify_images[0] if apify_images and isinstance(apify_images[0], str) else "")
-                    or (latest_imgs[0] if latest_imgs and isinstance(latest_imgs[0], str) else "")
+                    (apify_images[0] if apify_images and isinstance(apify_images[0], str) else "")
+                    or (apify_images[0].get("url", "") if apify_images and isinstance(apify_images[0], dict) else "")
                     or post.get("displayUrl", "")
                     or post.get("imageUrl", "")
                 )
@@ -319,15 +414,18 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
             if not logo_path:
                 if idx == 0:
                     print("SCORE SKIP — no logo_path set")
-            elif not image_url:
-                print(f"SCORE SKIP [{idx}] {username} — no image_url in post data")
             else:
-                img_path = download_image(image_url, suffix=str(idx))
+                img_path = download_image(
+                    url=image_url,
+                    suffix=str(idx),
+                    post_url=post_url,
+                    is_instagram=(platform == "instagram"),
+                )
                 if img_path:
                     s, h, c, risk = compare_logo(logo_path, img_path)
                     print(f"SCORED [{idx}] {username} — ssim={s} hash={h} combined={c} risk={risk}")
                 else:
-                    print(f"SCORE SKIP [{idx}] {username} — download returned None")
+                    print(f"SCORE SKIP [{idx}] {username} — all download methods failed")
 
             detections.append({
                 "platform":      PLATFORM_DISPLAY[platform],
