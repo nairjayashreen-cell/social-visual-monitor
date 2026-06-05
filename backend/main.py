@@ -74,6 +74,23 @@ def db_init():
                 FOREIGN KEY(scan_id) REFERENCES scans(id)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cases (
+                id              TEXT PRIMARY KEY,
+                detection_id    TEXT,
+                brand           TEXT,
+                platform        TEXT,
+                username        TEXT,
+                post_url        TEXT,
+                published       TEXT,
+                match_score     REAL,
+                risk            TEXT,
+                description     TEXT,
+                regions_found   INTEGER DEFAULT 0,
+                verified_at     TEXT,
+                notes           TEXT DEFAULT ''
+            )
+        """)
 
 db_init()
 
@@ -144,6 +161,67 @@ def db_repeat_offenders(brand=None, limit=10):
                 q.format(where=""), (limit,)
             ).fetchall()
     return [dict(r) for r in rows]
+
+# ─────────────────────────────────────────
+# CASE MANAGEMENT  (v1.8 upgrade)
+# ─────────────────────────────────────────
+
+def db_mark_case(detection: dict, notes: str = "") -> str:
+    """Save a detection as a verified abuse case. Returns case_id."""
+    case_id = str(uuid.uuid4())
+    with db_connect() as conn:
+        # Remove if already exists for this post_url + brand to avoid duplicates
+        conn.execute(
+            "DELETE FROM cases WHERE post_url=? AND brand=?",
+            (detection["post_url"], detection["brand"])
+        )
+        conn.execute(
+            """INSERT INTO cases VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                case_id,
+                detection.get("id", ""),
+                detection["brand"],
+                detection["platform"],
+                detection["username"],
+                detection["post_url"],
+                detection["published"],
+                detection["match_score"],
+                detection["risk"],
+                detection["description"],
+                detection.get("regions_found", 0),
+                now_ist(),
+                notes,
+            )
+        )
+    return case_id
+
+def db_unmark_case(post_url: str, brand: str):
+    with db_connect() as conn:
+        conn.execute(
+            "DELETE FROM cases WHERE post_url=? AND brand=?",
+            (post_url, brand)
+        )
+
+def db_get_cases(brand: str = "") -> list:
+    with db_connect() as conn:
+        if brand:
+            rows = conn.execute(
+                "SELECT * FROM cases WHERE brand=? ORDER BY verified_at DESC",
+                (brand,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM cases ORDER BY verified_at DESC"
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+def db_is_case(post_url: str, brand: str) -> bool:
+    with db_connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM cases WHERE post_url=? AND brand=?",
+            (post_url, brand)
+        ).fetchone()
+    return row is not None
 
 # ─────────────────────────────────────────
 # LOGO STATE
@@ -621,6 +699,7 @@ def nav_html(active="dashboard"):
     links = [
         ("dashboard", "/dashboard",  "Dashboard"),
         ("history",   "/history",    "Scan History"),
+        ("cases",     "/cases",      "🚨 Verified Cases"),
         ("offenders", "/offenders",  "Repeat Offenders"),
     ]
     parts = []
@@ -635,7 +714,37 @@ def nav_html(active="dashboard"):
 
 @app.get("/")
 def home():
-    return {"status": "AI Visual Threat Monitoring v1.9"}
+    return {"status": "AI Visual Threat Monitoring v2.0"}
+
+# ── Case Management API ──────────────────
+
+@app.post("/cases/mark")
+async def mark_case(
+    brand:         str,
+    platform:      str,
+    username:      str,
+    post_url:      str,
+    published:     str,
+    match_score:   float,
+    risk:          str,
+    description:   str,
+    regions_found: int = 0,
+    notes:         str = "",
+):
+    detection = {
+        "brand": brand, "platform": platform,
+        "username": username, "post_url": post_url,
+        "published": published, "match_score": match_score,
+        "risk": risk, "description": description,
+        "regions_found": regions_found,
+    }
+    case_id = db_mark_case(detection, notes)
+    return {"status": "marked", "case_id": case_id}
+
+@app.post("/cases/unmark")
+async def unmark_case(post_url: str, brand: str):
+    db_unmark_case(post_url, brand)
+    return {"status": "unmarked"}
 
 # ── Debug ────────────────────────────────
 
@@ -833,6 +942,9 @@ def scan(brand: str, platform: str = "instagram"):
             '<a href="/dashboard">Upload a logo</a> first.</div>'
         )
 
+        # Check which posts are already verified cases
+        all_case_urls = {c["post_url"] for c in db_get_cases(brand)}
+
         rows = ""
         for d in detections:
             region_info = ""
@@ -844,7 +956,20 @@ def scan(brand: str, platform: str = "instagram"):
             else:
                 region_info = '<span style="font-size:11px;color:#999">no region located</span>'
 
-            rows += f"""<tr>
+            is_case   = d["postUrl"] in all_case_urls
+            case_btn  = (
+                f'<button onclick="unmarkCase(this, \'{d["postUrl"]}\', \'{brand}\')" '
+                f'style="background:#dc3545;color:#fff;border:none;border-radius:4px;'
+                f'padding:4px 8px;font-size:11px;cursor:pointer;white-space:nowrap">'
+                f'🚨 Verified</button>'
+                if is_case else
+                f'<button onclick="markCase(this, {json.dumps(d)})" '
+                f'style="background:#fff;color:#6c757d;border:1px solid #ccc;border-radius:4px;'
+                f'padding:4px 8px;font-size:11px;cursor:pointer;white-space:nowrap">'
+                f'☑ Mark Abuse</button>'
+            )
+
+            rows += f"""<tr id="row-{d['postUrl'][:30].replace('/','_')}">
               <td>{d['platform']}</td>
               <td><strong>{d['username']}</strong></td>
               <td style="white-space:nowrap">{d['publishedDate']}</td>
@@ -857,6 +982,7 @@ def scan(brand: str, platform: str = "instagram"):
               </td>
               <td style="font-weight:700">{d['matchScore']}%</td>
               <td>{risk_badge(d['risk'])}</td>
+              <td>{case_btn}</td>
               <td><a href="{d['postUrl']}" target="_blank">View ↗</a></td>
             </tr>"""
 
@@ -896,7 +1022,8 @@ def scan(brand: str, platform: str = "instagram"):
 
 <table>
   <tr><th>Platform</th><th>Username</th><th>Published</th><th>Brand</th>
-      <th>Description</th><th>Score Breakdown</th><th>Match Score</th><th>Risk</th><th>Post</th></tr>
+      <th>Description</th><th>Score Breakdown</th><th>Match Score</th>
+      <th>Risk</th><th>Case</th><th>Post</th></tr>
   {rows}
 </table>
 </div>
@@ -922,6 +1049,57 @@ new Chart(document.getElementById('riskChart'), {{
     scales: {{ y: {{ beginAtZero: true, ticks: {{ stepSize: 1 }} }} }}
   }}
 }});
+
+async function markCase(btn, d) {{
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  const params = new URLSearchParams({{
+    brand:         d.detectedBrand,
+    platform:      d.platform,
+    username:      d.username,
+    post_url:      d.postUrl,
+    published:     d.publishedDate,
+    match_score:   d.matchScore,
+    risk:          d.risk,
+    description:   d.description,
+    regions_found: d.regionsFound || 0,
+  }});
+  try {{
+    const res = await fetch('/cases/mark?' + params, {{method: 'POST'}});
+    const data = await res.json();
+    if (data.status === 'marked') {{
+      btn.style.background = '#dc3545';
+      btn.style.color = '#fff';
+      btn.style.border = 'none';
+      btn.textContent = '🚨 Verified';
+      btn.onclick = () => unmarkCase(btn, d.postUrl, d.detectedBrand);
+      btn.disabled = false;
+    }}
+  }} catch(e) {{
+    btn.textContent = '☑ Mark Abuse';
+    btn.disabled = false;
+  }}
+}}
+
+async function unmarkCase(btn, postUrl, brand) {{
+  btn.disabled = true;
+  btn.textContent = 'Removing…';
+  const params = new URLSearchParams({{post_url: postUrl, brand}});
+  try {{
+    const res = await fetch('/cases/unmark?' + params, {{method: 'POST'}});
+    const data = await res.json();
+    if (data.status === 'unmarked') {{
+      btn.style.background = '#fff';
+      btn.style.color = '#6c757d';
+      btn.style.border = '1px solid #ccc';
+      btn.textContent = '☑ Mark Abuse';
+      btn.disabled = false;
+    }}
+  }} catch(e) {{
+    btn.textContent = '🚨 Verified';
+    btn.disabled = false;
+  }}
+}}
 </script>
 </body></html>"""
 
@@ -1038,6 +1216,178 @@ new Chart(document.getElementById('riskChart'), {{
 }});
 </script>
 </body></html>"""
+
+# ── Verified Cases Page ─────────────────
+
+@app.get("/cases", response_class=HTMLResponse)
+def cases_page(brand: str = ""):
+    cases = db_get_cases(brand=brand)
+
+    brand_opts = '<option value="">All Brands</option>' + "".join(
+        f'<option value="{b}" {"selected" if b == brand else ""}>{b}</option>'
+        for b in BRANDS
+    )
+
+    rows = ""
+    for c in cases:
+        risk_color = RISK_COLOR.get(c["risk"], "#333")
+        rows += f"""<tr>
+          <td style="white-space:nowrap">{c['verified_at']}</td>
+          <td><strong>{c['brand']}</strong></td>
+          <td>{c['platform']}</td>
+          <td><strong>{c['username']}</strong></td>
+          <td style="font-size:12px">{c['description'][:100]}{'…' if len(c['description'])>100 else ''}</td>
+          <td style="font-weight:700">{c['match_score']}%</td>
+          <td style="color:{risk_color};font-weight:600">{c['risk']}</td>
+          <td>{c['regions_found']}</td>
+          <td><a href="{c['post_url']}" target="_blank">View ↗</a></td>
+          <td>
+            <button onclick="removeCase(this,'{c['post_url']}','{c['brand']}')"
+              style="background:#fff;color:#dc3545;border:1px solid #dc3545;
+                     border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer">
+              Remove
+            </button>
+          </td>
+        </tr>"""
+
+    empty = """<tr><td colspan="10" style="color:#999;padding:20px;text-align:center">
+        No verified cases yet. Mark posts as abuse from the Scan Results page.</td></tr>"""
+
+    summary_cards = f"""
+    <div class="scards">
+      <div class="scard"><div class="num">{len(cases)}</div><div class="lbl">Total Cases</div></div>
+      <div class="scard"><div class="num" style="color:#dc3545">{sum(1 for c in cases if c['risk']=='High')}</div><div class="lbl">High Risk</div></div>
+      <div class="scard"><div class="num" style="color:#fd7e14">{sum(1 for c in cases if c['risk']=='Medium')}</div><div class="lbl">Medium Risk</div></div>
+      <div class="scard"><div class="num" style="color:#198754">{sum(1 for c in cases if c['risk']=='Low')}</div><div class="lbl">Low Risk</div></div>
+    </div>"""
+
+    return f"""<!DOCTYPE html><html><head><title>Verified Cases</title>
+<style>{BASE_CSS}</style></head><body><div class="page">
+<h1>🚨 Verified Abuse Cases</h1>
+<p class="sub">Posts manually confirmed as brand abuse, impersonation, or misuse</p>
+{nav_html("cases")}
+
+<div class="card">
+  <form method="get" style="display:flex;gap:10px;align-items:center">
+    <select name="brand">{brand_opts}</select>
+    <button type="submit" class="btn btn-blue">Filter</button>
+    {"<a class='btn btn-green' href='/cases/export?brand=" + brand + "'>⬇ Export Excel</a>" if cases else ""}
+  </form>
+</div>
+
+{summary_cards}
+
+<div class="banner banner-info">
+  These cases are saved permanently. Use <strong>Export Excel</strong> to share with your legal or compliance team.
+  Each case includes the post URL, match score, username, and verified timestamp.
+</div>
+
+<table>
+  <tr>
+    <th>Verified At</th><th>Brand</th><th>Platform</th><th>Username</th>
+    <th>Description</th><th>Match Score</th><th>Risk</th>
+    <th>Regions</th><th>Post</th><th></th>
+  </tr>
+  {rows if rows else empty}
+</table>
+</div>
+<script>
+async function removeCase(btn, postUrl, brand) {{
+  if (!confirm('Remove this case from verified list?')) return;
+  btn.disabled = true;
+  btn.textContent = 'Removing…';
+  const params = new URLSearchParams({{post_url: postUrl, brand}});
+  try {{
+    const res  = await fetch('/cases/unmark?' + params, {{method: 'POST'}});
+    const data = await res.json();
+    if (data.status === 'unmarked') {{
+      btn.closest('tr').style.opacity = '0.3';
+      setTimeout(() => btn.closest('tr').remove(), 500);
+    }}
+  }} catch(e) {{
+    btn.disabled = false;
+    btn.textContent = 'Remove';
+  }}
+}}
+</script>
+</body></html>"""
+
+# ── Cases Export ─────────────────────────
+
+@app.get("/cases/export")
+def cases_export(brand: str = ""):
+    cases = db_get_cases(brand=brand)
+    if not cases:
+        return {"error": "No cases to export"}
+
+    rows = [{
+        "Verified At":   c["verified_at"],
+        "Brand":         c["brand"],
+        "Platform":      c["platform"],
+        "Username":      c["username"],
+        "Post URL":      c["post_url"],
+        "Published":     c["published"],
+        "Match Score (%)": c["match_score"],
+        "Risk":          c["risk"],
+        "Regions Found": c["regions_found"],
+        "Description":   c["description"],
+        "Notes":         c["notes"],
+    } for c in cases]
+
+    df = pd.DataFrame(rows)
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    ts       = now_ts()
+    label    = brand.replace(" ", "_") if brand else "All_Brands"
+    filename = f"{EXPORT_DIR}/verified_cases_{label}_{ts}.xlsx"
+
+    from openpyxl import Workbook
+    wb  = Workbook()
+    ws  = wb.active
+    ws.title = "Verified Cases"
+    ws.sheet_view.showGridLines = False
+
+    RED_FILL   = PatternFill("solid", fgColor="DC3545")
+    WHITE_FONT = Font(color="FFFFFF", bold=True, size=11)
+    THIN_BORDER = Border(
+        left=Side(style="thin", color="DDDDDD"),
+        right=Side(style="thin", color="DDDDDD"),
+        top=Side(style="thin", color="DDDDDD"),
+        bottom=Side(style="thin", color="DDDDDD"),
+    )
+
+    headers = list(rows[0].keys()) if rows else []
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.fill   = RED_FILL
+        cell.font   = WHITE_FONT
+        cell.border = THIN_BORDER
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    for row_i, r in enumerate(rows, start=2):
+        for col_i, val in enumerate(r.values(), 1):
+            cell = ws.cell(row=row_i, column=col_i, value=val)
+            cell.border    = THIN_BORDER
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            ws.row_dimensions[row_i].height = 20
+            if col_i == 8:  # Risk column
+                if val == "High":
+                    cell.font = Font(color="DC3545", bold=True)
+                    cell.fill = PatternFill("solid", fgColor="FFE0E3")
+                elif val == "Medium":
+                    cell.font = Font(color="C05C00", bold=True)
+                    cell.fill = PatternFill("solid", fgColor="FFF0DB")
+
+    col_widths = [24, 16, 12, 22, 50, 24, 14, 10, 12, 60, 30]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[ws.cell(1, i).column_letter].width = w
+
+    wb.save(filename)
+    return FileResponse(
+        path=filename,
+        filename=f"verified_cases_{label}_{ts}.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 # ── Repeat Offenders (v2.1.5 groundwork) ─
 
