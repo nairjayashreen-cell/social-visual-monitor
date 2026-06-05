@@ -70,6 +70,7 @@ def db_init():
                 match_score REAL,
                 risk        TEXT,
                 description TEXT,
+                regions_found INTEGER DEFAULT 0,
                 FOREIGN KEY(scan_id) REFERENCES scans(id)
             )
         """)
@@ -94,11 +95,11 @@ def db_save_scan(brand, platform, detections, logo_path):
         )
         for d in detections:
             conn.execute(
-                "INSERT INTO detections VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO detections VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (str(uuid.uuid4()), scan_id, brand, platform,
                  d["username"], d["postUrl"], d["publishedDate"],
                  d["ssimScore"], d["hashScore"], d["matchScore"],
-                 d["risk"], d["description"])
+                 d["risk"], d["description"], d.get("regionsFound", 0))
             )
     return scan_id
 
@@ -164,8 +165,18 @@ def set_logo_path(path):
         json.dump({"logo_path": path}, f)
 
 # ─────────────────────────────────────────
-# SCORING  (v1.6 — unchanged)
+# SCORING ENGINE  v2.0
+# Layer 1 — Multi-scale template matching: finds the logo anywhere in the
+#            image at any size (corner watermark, large overlay, etc.)
+# Layer 2 — SSIM on the best matched region: structural accuracy
+# Layer 3 — ImageHash on full image: perceptual fingerprint
+# All three combine into a single confidence score 0-100
 # ─────────────────────────────────────────
+
+def risk_level(score):
+    if score >= 65:   return "High"
+    elif score >= 35: return "Medium"
+    else:             return "Low"
 
 def compute_ssim_score(logo_gray, image_gray):
     try:
@@ -182,31 +193,105 @@ def compute_hash_score(logo_pil, image_pil):
     except Exception:
         return 0.0
 
-def combined_score(s, h):
-    return round(s * 0.35 + h * 0.65, 2)
+def find_logo_regions(logo_gray, image_gray):
+    """
+    Multi-scale template matching — searches for the logo at many sizes.
+    Catches logos used as small corner watermarks all the way to full overlays.
+    Returns up to 5 candidate regions sorted by match confidence.
+    """
+    ih, iw = image_gray.shape
+    lh, lw = logo_gray.shape
+    regions = []
+    seen    = []
 
-def risk_level(score):
-    if score >= 65:   return "High"
-    elif score >= 35: return "Medium"
-    else:             return "Low"
+    scale_specs = (
+        [("logo",  p) for p in [0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.70, 1.0]] +
+        [("image", p) for p in [0.10, 0.15, 0.20, 0.25, 0.30]]
+    )
+
+    for ref, pct in scale_specs:
+        try:
+            if ref == "logo":
+                nw = max(10, int(lw * pct))
+                nh = max(10, int(lh * pct))
+            else:
+                nw = max(10, int(iw * pct))
+                nh = max(10, int(ih * pct))
+
+            if nw > iw or nh > ih:
+                continue
+
+            tmpl          = cv2.resize(logo_gray, (nw, nh))
+            result        = cv2.matchTemplate(image_gray, tmpl, cv2.TM_CCOEFF_NORMED)
+            _, mval, _, mloc = cv2.minMaxLoc(result)
+
+            if mval < 0.25:
+                continue
+
+            x, y = mloc
+            if any(abs(x - sx) < 20 and abs(y - sy) < 20 for sx, sy in seen):
+                continue
+
+            seen.append((x, y))
+            regions.append({
+                "score":     round(mval * 100, 2),
+                "x": x, "y": y, "w": nw, "h": nh,
+                "scale_pct": round(pct * 100),
+                "scale_ref": ref,
+            })
+        except Exception:
+            continue
+
+    regions.sort(key=lambda r: r["score"], reverse=True)
+    return regions[:5]
 
 def compare_logo(logo_path, image_path):
+    """
+    v2.0 full detection pipeline.
+    Returns (ssim_score, hash_score, combined_score, risk_level, regions_list)
+    regions_list contains bounding box data for each detected logo location.
+    """
     try:
         logo_cv  = cv2.imread(logo_path)
         image_cv = cv2.imread(image_path)
         if logo_cv is None or image_cv is None:
-            return 0.0, 0.0, 0.0, "Low"
+            return 0.0, 0.0, 0.0, "Low", []
+
         logo_gray  = cv2.cvtColor(logo_cv,  cv2.COLOR_BGR2GRAY)
         image_gray = cv2.cvtColor(image_cv, cv2.COLOR_BGR2GRAY)
         logo_pil   = Image.open(logo_path).convert("RGB")
         image_pil  = Image.open(image_path).convert("RGB")
-        s = compute_ssim_score(logo_gray, image_gray)
-        h = compute_hash_score(logo_pil, image_pil)
-        c = combined_score(s, h)
-        return s, h, c, risk_level(c)
+
+        # Layer 1: locate logo in image
+        regions = find_logo_regions(logo_gray, image_gray)
+
+        # Layer 2: SSIM on best region (or full image fallback)
+        if regions:
+            best = regions[0]
+            x, y, w, h = best["x"], best["y"], best["w"], best["h"]
+            crop = image_gray[y:y+h, x:x+w]
+            s = compute_ssim_score(logo_gray, crop)
+            # Boost by template confidence
+            s = round(min(100.0, s * (1 + (best["score"] / 100) * 0.5)), 2)
+        else:
+            s = compute_ssim_score(logo_gray, image_gray)
+
+        # Layer 3: perceptual hash on full image
+        h_score = compute_hash_score(logo_pil, image_pil)
+
+        # Combined score
+        if regions:
+            # Template match is strongest signal when a region is found
+            c = round(regions[0]["score"] * 0.50 + s * 0.25 + h_score * 0.25, 2)
+        else:
+            # No region found — fall back to v1.6 weights
+            c = round(s * 0.35 + h_score * 0.65, 2)
+
+        return s, h_score, c, risk_level(c), regions
+
     except Exception as e:
         print("COMPARE ERROR:", e)
-        return 0.0, 0.0, 0.0, "Low"
+        return 0.0, 0.0, 0.0, "Low", []
 
 def fetch_og_image_via_apify(post_url, apify_token):
     """
@@ -457,8 +542,13 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
                     is_instagram=(platform == "instagram"),
                 )
                 if img_path:
-                    s, h, c, risk = compare_logo(logo_path, img_path)
-                    print(f"SCORED [{idx}] {username} — ssim={s} hash={h} combined={c} risk={risk}")
+                    s, h, c, risk, regions = compare_logo(logo_path, img_path)
+                    top_region = regions[0] if regions else None
+                    loc = (f"{len(regions)} region(s) found, "
+                           f"best at ({top_region['x']},{top_region['y']}) "
+                           f"size {top_region['w']}x{top_region['h']}px "
+                           f"score {top_region['score']}%") if top_region else "no region found"
+                    print(f"SCORED [{idx}] {username} — ssim={s} hash={h} combined={c} risk={risk} | {loc}")
                 else:
                     print(f"SCORE SKIP [{idx}] {username} — all download methods failed")
 
@@ -472,6 +562,8 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
                 "hashScore":     h,
                 "matchScore":    c,
                 "risk":          risk,
+                "regionsFound":  len(regions) if 'regions' in dir() else 0,
+                "topRegion":     regions[0] if regions else None,
                 "description":   caption[:120] + "…" if len(caption) > 120 else caption,
             })
         except Exception as e:
@@ -743,13 +835,26 @@ def scan(brand: str, platform: str = "instagram"):
 
         rows = ""
         for d in detections:
+            region_info = ""
+            if d.get("topRegion"):
+                r = d["topRegion"]
+                region_info = (f'<span style="font-size:11px;color:#0d6efd">'
+                               f'📍 {d["regionsFound"]} region(s) · '
+                               f'best {r["score"]}% @ {r["scale_pct"]}% size</span>')
+            else:
+                region_info = '<span style="font-size:11px;color:#999">no region located</span>'
+
             rows += f"""<tr>
               <td>{d['platform']}</td>
               <td><strong>{d['username']}</strong></td>
               <td style="white-space:nowrap">{d['publishedDate']}</td>
               <td><span style="color:#0d6efd;font-weight:600">{d['detectedBrand']}</span></td>
               <td style="font-size:12px">{d['description']}</td>
-              <td style="font-size:12px;color:#666">SSIM: {d['ssimScore']}%<br>Hash: {d['hashScore']}%</td>
+              <td style="font-size:12px;color:#666">
+                SSIM: {d['ssimScore']}%<br>
+                Hash: {d['hashScore']}%<br>
+                {region_info}
+              </td>
               <td style="font-weight:700">{d['matchScore']}%</td>
               <td>{risk_badge(d['risk'])}</td>
               <td><a href="{d['postUrl']}" target="_blank">View ↗</a></td>
@@ -1115,7 +1220,7 @@ def export_excel(brand: str, platform: str = "instagram", scan_id: str = ""):
     ws2.sheet_view.showGridLines = False
 
     headers2 = ["Platform","Username","Published Date","Post URL",
-                 "Detected Brand","SSIM Score (%)","Hash Score (%)","Match Score (%)","Risk","Description"]
+                 "Detected Brand","SSIM Score (%)","Hash Score (%)","Match Score (%)","Regions Found","Risk","Description"]
     for col, h in enumerate(headers2, 1):
         ws2.cell(row=1, column=col, value=h)
     style_header_row(ws2, 1, len(headers2))
@@ -1124,12 +1229,12 @@ def export_excel(brand: str, platform: str = "instagram", scan_id: str = ""):
     for row_i, d in enumerate(detections, start=2):
         vals = [d["platform"], d["username"], d["publishedDate"], d["postUrl"],
                 d["detectedBrand"], d["ssimScore"], d["hashScore"], d["matchScore"],
-                d["risk"], d["description"]]
+                d.get("regionsFound", 0), d["risk"], d["description"]]
         for col_i, val in enumerate(vals, 1):
             cell = ws2.cell(row=row_i, column=col_i, value=val)
-            style_data_cell(cell, center=(col_i in [1,5,6,7,8,9]))
+            style_data_cell(cell, center=(col_i in [1,5,6,7,8,9,10]))
             ws2.row_dimensions[row_i].height = 20
-            if col_i == 9:
+            if col_i == 10:
                 if val == "High":
                     cell.font = Font(color="DC3545", bold=True)
                     cell.fill = PatternFill("solid", fgColor="FFE0E3")
@@ -1140,7 +1245,7 @@ def export_excel(brand: str, platform: str = "instagram", scan_id: str = ""):
                     cell.font = Font(color="155724", bold=True)
                     cell.fill = PatternFill("solid", fgColor="D1FAE5")
 
-    col_widths2 = [12,22,24,50,16,14,14,16,10,60]
+    col_widths2 = [12,22,24,50,16,14,14,16,14,10,60]
     for i, w in enumerate(col_widths2, 1):
         ws2.column_dimensions[ws2.cell(1,i).column_letter].width = w
 
