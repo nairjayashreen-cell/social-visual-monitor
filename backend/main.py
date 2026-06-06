@@ -1054,7 +1054,7 @@ def scan(brand: str, platform: str = "instagram"):
         all_case_urls = {c["post_url"] for c in db_get_cases(brand)}
 
         rows = ""
-        for d in detections:
+        for idx, d in enumerate(detections):
             region_info = ""
             if d.get("topRegion"):
                 r = d["topRegion"]
@@ -1065,13 +1065,26 @@ def scan(brand: str, platform: str = "instagram"):
                 region_info = '<span style="font-size:11px;color:#999">no region located</span>'
 
             is_case   = d["postUrl"] in all_case_urls
+
+            mark_data = json.dumps({
+                "detectedBrand": d["detectedBrand"],
+                "platform":      d["platform"],
+                "username":      d["username"],
+                "postUrl":       d["postUrl"],
+                "publishedDate": d["publishedDate"],
+                "matchScore":    d["matchScore"],
+                "risk":          d["risk"],
+                "description":   d["description"],
+                "regionsFound":  d.get("regionsFound", 0),
+            })
+
             case_btn  = (
                 f'<button onclick="unmarkCase(this, \'{d["postUrl"]}\', \'{brand}\')" '
                 f'style="background:#dc3545;color:#fff;border:none;border-radius:4px;'
                 f'padding:4px 8px;font-size:11px;cursor:pointer;white-space:nowrap">'
                 f'🚨 Verified</button>'
                 if is_case else
-                f'<button onclick="markCase(this, {json.dumps(d)})" '
+                f'<button onclick="markCase(this, {mark_data})" '
                 f'style="background:#fff;color:#6c757d;border:1px solid #ccc;border-radius:4px;'
                 f'padding:4px 8px;font-size:11px;cursor:pointer;white-space:nowrap">'
                 f'☑ Mark Abuse</button>'
