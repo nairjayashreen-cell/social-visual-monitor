@@ -588,7 +588,7 @@ AI_CATEGORIES = {
 
 def ai_classify(caption: str, brand: str, username: str) -> dict:
     """
-    Calls Claude API to classify the post caption.
+    Calls Google Gemini 1.5 Flash (free tier) to classify the post caption.
     Returns dict with category, confidence, reasoning.
     """
     if not caption or len(caption.strip()) < 5:
@@ -619,31 +619,41 @@ Categories:
 Respond in this exact JSON format, nothing else:
 {{"category": "CATEGORY_NAME", "confidence": 0-100, "reasoning": "One sentence explanation"}}"""
 
-        ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-        if not ANTHROPIC_KEY:
-            print("AI CLASSIFY — ANTHROPIC_API_KEY not set")
+        GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+        if not GEMINI_KEY:
+            print("AI CLASSIFY — GEMINI_API_KEY not set")
             return {"category": "UNKNOWN", "confidence": 0, "reasoning": "API key not configured."}
 
         response = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "Content-Type":      "application/json",
-                "x-api-key":         ANTHROPIC_KEY,
-                "anthropic-version": "2023-06-01",
-            },
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}",
+            headers={"Content-Type": "application/json"},
             json={
-                "model":      "claude-haiku-4-5-20251001",
-                "max_tokens": 150,
-                "messages":   [{"role": "user", "content": prompt}],
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature":     0.1,
+                    "maxOutputTokens": 150,
+                },
             },
             timeout=15,
         )
 
         if response.status_code != 200:
-            print(f"AI CLASSIFY HTTP {response.status_code}")
+            print(f"AI CLASSIFY HTTP {response.status_code}: {response.text[:200]}")
             return {"category": "UNKNOWN", "confidence": 0, "reasoning": "API error."}
 
-        text = response.json()["content"][0]["text"].strip()
+        # Gemini response format: candidates[0].content.parts[0].text
+        resp_json = response.json()
+        text = (
+            resp_json
+            .get("candidates", [{}])[0]
+            .get("content", {})
+            .get("parts", [{}])[0]
+            .get("text", "")
+            .strip()
+        )
+
+        if not text:
+            return {"category": "UNKNOWN", "confidence": 0, "reasoning": "Empty response."}
 
         # Strip markdown fences if present
         text = text.replace("```json", "").replace("```", "").strip()
