@@ -570,6 +570,91 @@ def risk_badge(level):
 # SHARED FETCH + SCORE
 # ─────────────────────────────────────────
 
+# ─────────────────────────────────────────
+# AI CLASSIFICATION  v2.1
+# Uses Claude to classify each post caption
+# ─────────────────────────────────────────
+
+AI_CATEGORIES = {
+    "LEGITIMATE":        {"label": "Legitimate",        "color": "#198754", "icon": "✅"},
+    "SCAM":              {"label": "Scam",               "color": "#dc3545", "icon": "🚨"},
+    "FAKE_INVESTMENT":   {"label": "Fake Investment",    "color": "#dc3545", "icon": "💸"},
+    "IMPERSONATION":     {"label": "Impersonation",      "color": "#dc3545", "icon": "👤"},
+    "TRADEMARK_ABUSE":   {"label": "Trademark Abuse",    "color": "#fd7e14", "icon": "™️"},
+    "COMPLAINT":         {"label": "Complaint",          "color": "#fd7e14", "icon": "⚠️"},
+    "UNRELATED":         {"label": "Unrelated",          "color": "#6c757d", "icon": "➖"},
+    "UNKNOWN":           {"label": "Unknown",            "color": "#6c757d", "icon": "❓"},
+}
+
+def ai_classify(caption: str, brand: str, username: str) -> dict:
+    """
+    Calls Claude API to classify the post caption.
+    Returns dict with category, confidence, reasoning.
+    """
+    if not caption or len(caption.strip()) < 5:
+        return {
+            "category":   "UNKNOWN",
+            "confidence": 0,
+            "reasoning":  "No caption to analyse.",
+        }
+
+    try:
+        prompt = f"""You are a brand protection analyst for {brand}, an Indian financial services company.
+
+Analyse this Instagram post and classify it into exactly ONE category.
+
+Username: @{username}
+Caption: {caption[:500]}
+
+Categories:
+- LEGITIMATE: Genuine brand post, authorised partner, or positive/neutral brand mention
+- SCAM: Fake offers, fraud, phishing, too-good-to-be-true returns, lottery, prize scams
+- FAKE_INVESTMENT: Fake investment advice, unauthorised tips, misleading returns using brand name
+- IMPERSONATION: Account pretending to be the brand or an official representative
+- TRADEMARK_ABUSE: Unauthorised commercial use of brand name/logo to sell products or services
+- COMPLAINT: Genuine customer complaint about the brand
+- UNRELATED: Post happens to mention the brand keyword but has no real connection (e.g. a place name)
+- UNKNOWN: Cannot determine from caption alone
+
+Respond in this exact JSON format, nothing else:
+{{"category": "CATEGORY_NAME", "confidence": 0-100, "reasoning": "One sentence explanation"}}"""
+
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"Content-Type": "application/json"},
+            json={
+                "model":      "claude-haiku-4-5-20251001",
+                "max_tokens": 150,
+                "messages":   [{"role": "user", "content": prompt}],
+            },
+            timeout=15,
+        )
+
+        if response.status_code != 200:
+            print(f"AI CLASSIFY HTTP {response.status_code}")
+            return {"category": "UNKNOWN", "confidence": 0, "reasoning": "API error."}
+
+        text = response.json()["content"][0]["text"].strip()
+
+        # Strip markdown fences if present
+        text = text.replace("```json", "").replace("```", "").strip()
+        result = json.loads(text)
+
+        category = result.get("category", "UNKNOWN").upper()
+        if category not in AI_CATEGORIES:
+            category = "UNKNOWN"
+
+        return {
+            "category":   category,
+            "confidence": int(result.get("confidence", 0)),
+            "reasoning":  result.get("reasoning", "")[:200],
+        }
+
+    except Exception as e:
+        print(f"AI CLASSIFY ERROR: {e}")
+        return {"category": "UNKNOWN", "confidence": 0, "reasoning": "Classification failed."}
+
+
 def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
     url  = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={apify_token}"
     data = requests.get(url, timeout=30).json()
@@ -642,7 +727,11 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
                 "risk":          risk,
                 "regionsFound":  len(regions) if 'regions' in dir() else 0,
                 "topRegion":     regions[0] if regions else None,
+                "aiCategory":    "",
+                "aiConfidence":  0,
+                "aiReasoning":   "",
                 "description":   caption[:120] + "…" if len(caption) > 120 else caption,
+                "fullCaption":   caption,
             })
         except Exception as e:
             print(f"ITEM ERROR [{platform}] idx={idx}:", e)
@@ -790,6 +879,25 @@ def debug():
         "tmp_uploads":     upload_files,
         "tmp_files":       [f for f in tmp_files if not f.startswith(".")],
         "worker_pid":      os.getpid(),
+    }
+
+# ── AI Classify endpoint ─────────────────
+
+@app.get("/classify")
+def classify_post(caption: str, brand: str, username: str = "unknown"):
+    """
+    Called from the scan page JS per-row when user expands AI analysis.
+    Returns JSON with category, confidence, reasoning.
+    """
+    result = ai_classify(caption, brand, username)
+    cat    = AI_CATEGORIES.get(result["category"], AI_CATEGORIES["UNKNOWN"])
+    return {
+        "category":   result["category"],
+        "label":      cat["label"],
+        "color":      cat["color"],
+        "icon":       cat["icon"],
+        "confidence": result["confidence"],
+        "reasoning":  result["reasoning"],
     }
 
 # ── Upload ──────────────────────────────
@@ -969,7 +1077,15 @@ def scan(brand: str, platform: str = "instagram"):
                 f'☑ Mark Abuse</button>'
             )
 
-            rows += f"""<tr id="row-{d['postUrl'][:30].replace('/','_')}">
+            # Escape caption for JS — remove quotes and newlines
+            safe_caption = d.get("fullCaption", d["description"]).replace("'", " ").replace('"', " ").replace("\n", " ")[:400]
+            ai_btn = (f'<div id="ai-{idx}">'
+                      f'<button onclick="classifyPost({idx},\'{safe_caption}\',\'{brand}\',\'{d["username"]}\')" '
+                      f'style="background:#fff;color:#7c3aed;border:1px solid #7c3aed;border-radius:4px;'
+                      f'padding:4px 8px;font-size:11px;cursor:pointer;white-space:nowrap">'
+                      f'🤖 Classify</button></div>')
+
+            rows += f"""<tr id="row-{idx}">
               <td>{d['platform']}</td>
               <td><strong>{d['username']}</strong></td>
               <td style="white-space:nowrap">{d['publishedDate']}</td>
@@ -982,6 +1098,7 @@ def scan(brand: str, platform: str = "instagram"):
               </td>
               <td style="font-weight:700">{d['matchScore']}%</td>
               <td>{risk_badge(d['risk'])}</td>
+              <td>{ai_btn}</td>
               <td>{case_btn}</td>
               <td><a href="{d['postUrl']}" target="_blank">View ↗</a></td>
             </tr>"""
@@ -1023,7 +1140,7 @@ def scan(brand: str, platform: str = "instagram"):
 <table>
   <tr><th>Platform</th><th>Username</th><th>Published</th><th>Brand</th>
       <th>Description</th><th>Score Breakdown</th><th>Match Score</th>
-      <th>Risk</th><th>Case</th><th>Post</th></tr>
+      <th>Risk</th><th>AI</th><th>Case</th><th>Post</th></tr>
   {rows}
 </table>
 </div>
@@ -1049,6 +1166,23 @@ new Chart(document.getElementById('riskChart'), {{
     scales: {{ y: {{ beginAtZero: true, ticks: {{ stepSize: 1 }} }} }}
   }}
 }});
+
+async function classifyPost(idx, caption, brand, username) {{
+  const div = document.getElementById('ai-' + idx);
+  div.innerHTML = '<span style="font-size:11px;color:#7c3aed">Analysing…</span>';
+  try {{
+    const params = new URLSearchParams({{caption, brand, username}});
+    const res  = await fetch('/classify?' + params);
+    const data = await res.json();
+    div.innerHTML = `
+      <span style="font-size:12px;font-weight:600;color:${{data.color}}">${{data.icon}} ${{data.label}}</span><br>
+      <span style="font-size:11px;color:#666">${{data.confidence}}% confident</span><br>
+      <span style="font-size:11px;color:#444;font-style:italic">${{data.reasoning}}</span>
+    `;
+  }} catch(e) {{
+    div.innerHTML = '<span style="font-size:11px;color:#999">Failed</span>';
+  }}
+}}
 
 async function markCase(btn, d) {{
   btn.disabled = true;
@@ -1570,7 +1704,8 @@ def export_excel(brand: str, platform: str = "instagram", scan_id: str = ""):
     ws2.sheet_view.showGridLines = False
 
     headers2 = ["Platform","Username","Published Date","Post URL",
-                 "Detected Brand","SSIM Score (%)","Hash Score (%)","Match Score (%)","Regions Found","Risk","Description"]
+                 "Detected Brand","SSIM Score (%)","Hash Score (%)","Match Score (%)","Regions Found","Risk",
+                 "AI Category","AI Confidence (%)","AI Reasoning","Description"]
     for col, h in enumerate(headers2, 1):
         ws2.cell(row=1, column=col, value=h)
     style_header_row(ws2, 1, len(headers2))
@@ -1579,10 +1714,12 @@ def export_excel(brand: str, platform: str = "instagram", scan_id: str = ""):
     for row_i, d in enumerate(detections, start=2):
         vals = [d["platform"], d["username"], d["publishedDate"], d["postUrl"],
                 d["detectedBrand"], d["ssimScore"], d["hashScore"], d["matchScore"],
-                d.get("regionsFound", 0), d["risk"], d["description"]]
+                d.get("regionsFound", 0), d["risk"],
+                d.get("aiCategory",""), d.get("aiConfidence",0), d.get("aiReasoning",""),
+                d["description"]]
         for col_i, val in enumerate(vals, 1):
             cell = ws2.cell(row=row_i, column=col_i, value=val)
-            style_data_cell(cell, center=(col_i in [1,5,6,7,8,9,10]))
+            style_data_cell(cell, center=(col_i in [1,5,6,7,8,9,10,12]))
             ws2.row_dimensions[row_i].height = 20
             if col_i == 10:
                 if val == "High":
