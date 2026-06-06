@@ -619,9 +619,18 @@ Categories:
 Respond in this exact JSON format, nothing else:
 {{"category": "CATEGORY_NAME", "confidence": 0-100, "reasoning": "One sentence explanation"}}"""
 
+        ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+        if not ANTHROPIC_KEY:
+            print("AI CLASSIFY — ANTHROPIC_API_KEY not set")
+            return {"category": "UNKNOWN", "confidence": 0, "reasoning": "API key not configured."}
+
         response = requests.post(
             "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type":      "application/json",
+                "x-api-key":         ANTHROPIC_KEY,
+                "anthropic-version": "2023-06-01",
+            },
             json={
                 "model":      "claude-haiku-4-5-20251001",
                 "max_tokens": 150,
