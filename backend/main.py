@@ -638,11 +638,12 @@ Respond in this exact JSON format, nothing else:
         )
 
         if response.status_code != 200:
-            print(f"AI CLASSIFY HTTP {response.status_code}: {response.text[:200]}")
-            return {"category": "UNKNOWN", "confidence": 0, "reasoning": "API error."}
+            print(f"AI CLASSIFY HTTP {response.status_code}: {response.text[:300]}")
+            return {"category": "UNKNOWN", "confidence": 0, "reasoning": f"API error {response.status_code}."}
 
         # Gemini response format: candidates[0].content.parts[0].text
         resp_json = response.json()
+        print(f"AI CLASSIFY RAW: {json.dumps(resp_json)[:300]}")
         text = (
             resp_json
             .get("candidates", [{}])[0]
@@ -653,6 +654,7 @@ Respond in this exact JSON format, nothing else:
         )
 
         if not text:
+            print("AI CLASSIFY — empty text in response")
             return {"category": "UNKNOWN", "confidence": 0, "reasoning": "Empty response."}
 
         # Strip markdown fences if present
@@ -901,6 +903,19 @@ def debug():
     }
 
 # ── AI Classify endpoint ─────────────────
+
+@app.get("/test-ai")
+def test_ai():
+    """Quick test — call this URL to verify Gemini API is working."""
+    GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+    if not GEMINI_KEY:
+        return {"status": "error", "reason": "GEMINI_API_KEY not set in environment"}
+    result = ai_classify(
+        caption="ICICI Bank is offering guaranteed 40% returns on investments. Call now!",
+        brand="ICICI",
+        username="test_account",
+    )
+    return {"status": "ok", "result": result}
 
 @app.get("/classify")
 def classify_post(caption: str, brand: str, username: str = "unknown"):
