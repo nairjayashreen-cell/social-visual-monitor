@@ -588,83 +588,68 @@ AI_CATEGORIES = {
 
 def ai_classify(caption: str, brand: str, username: str) -> dict:
     """
-    Calls Google Gemini 1.5 Flash (free tier) to classify the post caption.
+    Calls Groq API (free, 30 req/min) to classify the post caption.
+    Model: llama-3.1-8b-instant
     Returns dict with category, confidence, reasoning.
     """
     if not caption or len(caption.strip()) < 5:
-        return {
-            "category":   "UNKNOWN",
-            "confidence": 0,
-            "reasoning":  "No caption to analyse.",
-        }
+        return {"category": "UNKNOWN", "confidence": 0, "reasoning": "No caption to analyse."}
 
     try:
-        prompt = f"""You are a brand protection analyst for {brand}, an Indian financial services company.
-
-Analyse this Instagram post and classify it into exactly ONE category.
-
-Username: @{username}
-Caption: {caption[:500]}
-
-Categories:
-- LEGITIMATE: Genuine brand post, authorised partner, or positive/neutral brand mention
-- SCAM: Fake offers, fraud, phishing, too-good-to-be-true returns, lottery, prize scams
-- FAKE_INVESTMENT: Fake investment advice, unauthorised tips, misleading returns using brand name
-- IMPERSONATION: Account pretending to be the brand or an official representative
-- TRADEMARK_ABUSE: Unauthorised commercial use of brand name/logo to sell products or services
-- COMPLAINT: Genuine customer complaint about the brand
-- UNRELATED: Post happens to mention the brand keyword but has no real connection (e.g. a place name)
-- UNKNOWN: Cannot determine from caption alone
-
-Respond in this exact JSON format, nothing else:
-{{"category": "CATEGORY_NAME", "confidence": 0-100, "reasoning": "One sentence explanation"}}"""
-
-        GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
-        if not GEMINI_KEY:
-            print("AI CLASSIFY — GEMINI_API_KEY not set")
+        GROQ_KEY = os.getenv("GROQ_API_KEY", "")
+        if not GROQ_KEY:
+            print("AI CLASSIFY — GROQ_API_KEY not set")
             return {"category": "UNKNOWN", "confidence": 0, "reasoning": "API key not configured."}
 
-        import time
-        for attempt in range(3):
-            response = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "temperature":     0.1,
-                        "maxOutputTokens": 150,
-                    },
-                },
-                timeout=15,
-            )
-            if response.status_code == 429:
-                print(f"AI CLASSIFY — rate limited, waiting 10s (attempt {attempt+1})")
-                time.sleep(10)
-                continue
-            break
+        prompt = (
+            f"You are a brand protection analyst for {brand}, an Indian financial services company.\n\n"
+            f"Analyse this Instagram post and classify it into exactly ONE category.\n\n"
+            f"Username: @{username}\n"
+            f"Caption: {caption[:500]}\n\n"
+            "Categories:\n"
+            "- LEGITIMATE: Genuine brand post, authorised partner, or positive/neutral brand mention\n"
+            "- SCAM: Fake offers, fraud, phishing, too-good-to-be-true returns, lottery, prize scams\n"
+            "- FAKE_INVESTMENT: Fake investment advice, unauthorised tips, misleading returns using brand name\n"
+            "- IMPERSONATION: Account pretending to be the brand or an official representative\n"
+            "- TRADEMARK_ABUSE: Unauthorised commercial use of brand name/logo to sell products or services\n"
+            "- COMPLAINT: Genuine customer complaint about the brand\n"
+            "- UNRELATED: Post has no real connection to the brand (e.g. a place name or different company)\n"
+            "- UNKNOWN: Cannot determine from caption alone\n\n"
+            'Respond in this exact JSON format, nothing else:\n{"category": "CATEGORY_NAME", "confidence": 0-100, "reasoning": "One sentence explanation"}'
+        )
+
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Content-Type":  "application/json",
+                "Authorization": f"Bearer {GROQ_KEY}",
+            },
+            json={
+                "model":       "llama-3.3-70b-versatile",
+                "messages":    [{"role": "user", "content": prompt}],
+                "max_tokens":  150,
+                "temperature": 0.1,
+            },
+            timeout=15,
+        )
 
         if response.status_code != 200:
             print(f"AI CLASSIFY HTTP {response.status_code}: {response.text[:300]}")
             return {"category": "UNKNOWN", "confidence": 0, "reasoning": f"API error {response.status_code}."}
 
-        # Gemini response format: candidates[0].content.parts[0].text
         resp_json = response.json()
         print(f"AI CLASSIFY RAW: {json.dumps(resp_json)[:300]}")
         text = (
             resp_json
-            .get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
+            .get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
             .strip()
         )
 
         if not text:
-            print("AI CLASSIFY — empty text in response")
             return {"category": "UNKNOWN", "confidence": 0, "reasoning": "Empty response."}
 
-        # Strip markdown fences if present
         text = text.replace("```json", "").replace("```", "").strip()
         result = json.loads(text)
 
@@ -913,10 +898,10 @@ def debug():
 
 @app.get("/test-ai")
 def test_ai():
-    """Quick test — call this URL to verify Gemini API is working."""
-    GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
-    if not GEMINI_KEY:
-        return {"status": "error", "reason": "GEMINI_API_KEY not set in environment"}
+    """Quick test — call this URL to verify Groq AI is working."""
+    GROQ_KEY = os.getenv("GROQ_API_KEY", "")
+    if not GROQ_KEY:
+        return {"status": "error", "reason": "GROQ_API_KEY not set in environment"}
     result = ai_classify(
         caption="ICICI Bank is offering guaranteed 40% returns on investments. Call now!",
         brand="ICICI",
