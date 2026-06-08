@@ -624,18 +624,25 @@ Respond in this exact JSON format, nothing else:
             print("AI CLASSIFY — GEMINI_API_KEY not set")
             return {"category": "UNKNOWN", "confidence": 0, "reasoning": "API key not configured."}
 
-        response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}",
-            headers={"Content-Type": "application/json"},
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature":     0.1,
-                    "maxOutputTokens": 150,
+        import time
+        for attempt in range(3):
+            response = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature":     0.1,
+                        "maxOutputTokens": 150,
+                    },
                 },
-            },
-            timeout=15,
-        )
+                timeout=15,
+            )
+            if response.status_code == 429:
+                print(f"AI CLASSIFY — rate limited, waiting 10s (attempt {attempt+1})")
+                time.sleep(10)
+                continue
+            break
 
         if response.status_code != 200:
             print(f"AI CLASSIFY HTTP {response.status_code}: {response.text[:300]}")
