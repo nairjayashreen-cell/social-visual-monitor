@@ -2,11 +2,11 @@
 
 ## Current Version
 
-MVP v2.0 – Multi-Scale Logo Detection & Threat Monitoring
+MVP v2.2 – AI-Powered Brand Abuse Intelligence Platform
 
 ### Overview
 
-AI Visual Threat Monitoring is a brand protection platform that scans social media content, detects brand logos, identifies potential misuse, and generates risk-based reports for investigation.
+AI Visual Threat Monitoring is an AI-powered brand protection platform that monitors social media content, detects brand logos, identifies unauthorized brand usage, classifies threats using AI, and generates investigation-ready reports for reputation, compliance, and abuse monitoring teams.
 
 ### Supported Brands
 
@@ -25,17 +25,20 @@ AI Visual Threat Monitoring is a brand protection platform that scans social med
 * Facebook (Planned)
 * LinkedIn (Planned)
 
-### Core Features
+---
 
-#### Brand Monitoring
+## Core Features
+
+### Brand Monitoring
 
 * Multi-brand monitoring
 * Instagram post scanning
 * Post URL tracking
-* IST timestamp conversion
 * Historical scan storage
+* IST timestamp conversion
+* Cross-scan comparison
 
-#### Logo Detection Engine
+### Logo Detection Engine
 
 * Multi-scale template matching
 * Logo region detection
@@ -45,23 +48,45 @@ AI Visual Threat Monitoring is a brand protection platform that scans social med
 * Hybrid confidence scoring
 * Risk classification (High / Medium / Low)
 
-#### Analytics & Intelligence
+### AI Threat Intelligence
+
+* AI-powered threat classification
+* Scam detection
+* Trademark abuse detection
+* Impersonation detection
+* Complaint identification
+* Legitimate content recognition
+* Confidence scoring
+* AI-generated reasoning
+
+### Investigation & Case Management
+
+* Verified abuse tracking
+* Case management dashboard
+* Repeat offender detection
+* Threat investigation workflow
+* Evidence preservation
+* Historical offender tracking
+
+### Analytics & Intelligence
 
 * Scan history dashboard
 * Risk distribution analytics
 * Average score tracking
-* Repeat offender tracking
+* Repeat offender intelligence
 * Historical scan comparisons
+* Threat category analysis
 
-#### Reporting
+### Reporting
 
 * Advanced Excel export
-* Executive summary sheet
-* High-risk detections report
+* Executive summary reports
+* High-risk detection reports
 * Risk distribution charts
 * Detection-level reporting
+* AI classification exports
 
-#### Infrastructure
+### Infrastructure
 
 * FastAPI backend
 * SQLite persistence
@@ -70,42 +95,78 @@ AI Visual Threat Monitoring is a brand protection platform that scans social med
 * Render deployment
 * Logo persistence management
 
-### Risk Levels
+---
 
-* High Risk: 65%+
-* Medium Risk: 35–64%
-* Low Risk: Below 35%
+## Risk Levels
 
-### Roadmap
+### High Risk
 
-#### MVP v2.1
+65% and above
 
-* AI-powered threat classification
-* Scam detection
-* Impersonation detection
-* Fake recruitment detection
+### Medium Risk
 
-#### MVP v2.2
+35% – 64%
 
-* Automated monitoring
-* Scheduled scans
-* Email alerts
-* WhatsApp notifications
+### Low Risk
 
-#### MVP v2.3
+Below 35%
 
-* Facebook monitoring
-* LinkedIn monitoring
-* Cross-platform intelligence dashboard
+---
 
-### Tech Stack
+## Current Intelligence Categories
+
+* Legitimate
+* Trademark Abuse
+* Scam
+* Impersonation
+* Complaint
+* Unrelated
+* Unknown
+
+---
+
+## Technology Stack
 
 * FastAPI
 * OpenCV
 * Scikit-Image (SSIM)
 * ImageHash
-* OpenPyXL
 * SQLite
 * Pandas
+* OpenPyXL
 * Apify
+* Groq (Llama 3.3 70B)
 * Render
+
+---
+
+## Roadmap
+
+### MVP v2.3
+
+* Alert Engine
+* Email notifications
+* WhatsApp alerts
+* Daily threat summaries
+* High-risk detection alerts
+
+### MVP v2.4
+
+* Facebook monitoring
+* LinkedIn monitoring
+* Cross-platform threat detection
+
+### MVP v2.5
+
+* Executive intelligence dashboard
+* Threat trends
+* Brand risk scoring
+* Category analytics
+
+### MVP v3.0
+
+* Automated monitoring
+* Scheduled scans
+* Multi-user support
+* Client workspaces
+* Enterprise reporting
