@@ -91,6 +91,20 @@ def db_init():
                 notes           TEXT DEFAULT ''
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS seen_posts (
+                content_hash    TEXT PRIMARY KEY,
+                brand           TEXT,
+                platform        TEXT,
+                post_url        TEXT,
+                username        TEXT,
+                first_seen_at   TEXT,
+                last_seen_at    TEXT,
+                times_seen      INTEGER DEFAULT 1,
+                max_score       REAL DEFAULT 0,
+                max_risk        TEXT DEFAULT 'Low'
+            )
+        """)
 
 db_init()
 
@@ -224,8 +238,138 @@ def db_is_case(post_url: str, brand: str) -> bool:
     return row is not None
 
 # ─────────────────────────────────────────
-# LOGO STATE
+# DEDUPLICATION  v2.1.5
 # ─────────────────────────────────────────
+
+import hashlib
+
+def make_content_hash(brand: str, platform: str, username: str,
+                      description: str, post_url: str) -> str:
+    """
+    Creates a fingerprint for a post.
+    Same post URL = definite duplicate.
+    Same brand + username + similar caption = likely same content reposted.
+    """
+    # Primary: exact post URL
+    url_hash = hashlib.md5(f"{brand}:{platform}:{post_url}".encode()).hexdigest()
+    return url_hash
+
+def make_caption_hash(brand: str, platform: str, username: str,
+                      description: str) -> str:
+    """
+    Secondary fingerprint based on content.
+    Catches same creative reposted by a different account.
+    Normalise caption: lowercase, strip spaces/punctuation.
+    """
+    import re
+    clean = re.sub(r'[^a-z0-9]', '', description.lower())[:100]
+    return hashlib.md5(f"{brand}:{platform}:{clean}".encode()).hexdigest()
+
+def db_check_and_record_seen(detection: dict) -> dict:
+    """
+    Checks if this post has been seen before.
+    Records it in seen_posts regardless.
+    Returns enriched detection with dedup fields:
+      - is_new: True if first time seeing this post
+      - times_seen: how many times this exact post appeared across scans
+      - same_creative_accounts: other accounts that posted same/similar content
+    """
+    post_url    = detection["postUrl"]
+    brand       = detection["detectedBrand"]
+    platform    = detection["platform"]
+    username    = detection["username"]
+    description = detection.get("description", "")
+    match_score = detection.get("matchScore", 0)
+    risk        = detection.get("risk", "Low")
+
+    url_hash     = make_content_hash(brand, platform, username, description, post_url)
+    caption_hash = make_caption_hash(brand, platform, username, description)
+    now          = now_ist()
+
+    with db_connect() as conn:
+        # Check if exact post URL seen before
+        existing = conn.execute(
+            "SELECT * FROM seen_posts WHERE content_hash=?", (url_hash,)
+        ).fetchone()
+
+        if existing:
+            # Update last seen + increment counter
+            conn.execute("""
+                UPDATE seen_posts
+                SET last_seen_at=?, times_seen=times_seen+1,
+                    max_score=MAX(max_score, ?),
+                    max_risk=CASE WHEN ?>max_score THEN ? ELSE max_risk END
+                WHERE content_hash=?
+            """, (now, match_score, match_score, risk, url_hash))
+            times_seen = existing["times_seen"] + 1
+            is_new     = False
+        else:
+            conn.execute("""
+                INSERT INTO seen_posts VALUES (?,?,?,?,?,?,?,?,?,?)
+            """, (url_hash, brand, platform, post_url, username,
+                  now, now, 1, match_score, risk))
+            times_seen = 1
+            is_new     = True
+
+        # Find other accounts that posted same/similar caption
+        same_creative = conn.execute("""
+            SELECT DISTINCT username FROM seen_posts
+            WHERE content_hash IN (
+                SELECT content_hash FROM seen_posts
+                WHERE content_hash=?
+            ) AND username != ?
+            LIMIT 5
+        """, (caption_hash, username)).fetchall()
+
+        # Count how many times this username has appeared across all scans
+        account_freq = conn.execute("""
+            SELECT COUNT(*) as cnt FROM seen_posts
+            WHERE username=? AND brand=?
+        """, (username, brand)).fetchone()
+
+    return {
+        **detection,
+        "isNew":              is_new,
+        "timesSeen":          times_seen,
+        "sameCreativeAccounts": [r["username"] for r in same_creative],
+        "accountFrequency":   account_freq["cnt"] if account_freq else 1,
+    }
+
+def db_get_dedup_stats(brand: str = "") -> dict:
+    """Summary stats for the deduplication dashboard."""
+    with db_connect() as conn:
+        q_brand = "WHERE brand=?" if brand else ""
+        params  = (brand,) if brand else ()
+
+        total = conn.execute(
+            f"SELECT COUNT(*) as c FROM seen_posts {q_brand}", params
+        ).fetchone()["c"]
+
+        repeat = conn.execute(
+            f"SELECT COUNT(*) as c FROM seen_posts {q_brand} {'AND' if brand else 'WHERE'} times_seen > 1"
+            if brand else
+            "SELECT COUNT(*) as c FROM seen_posts WHERE times_seen > 1",
+            params if brand else ()
+        ).fetchone()["c"]
+
+        top_accounts = conn.execute(
+            f"""SELECT username, brand, platform,
+                       COUNT(*) as post_count,
+                       MAX(max_score) as max_score,
+                       SUM(times_seen) as total_seen
+                FROM seen_posts {q_brand}
+                GROUP BY username, brand, platform
+                ORDER BY total_seen DESC, post_count DESC
+                LIMIT 10""",
+            params
+        ).fetchall()
+
+    return {
+        "total_unique_posts": total,
+        "repeat_posts":       repeat,
+        "new_posts":          total - repeat,
+        "top_accounts":       [dict(r) for r in top_accounts],
+    }
 
 def get_logo_path():
     try:
@@ -800,7 +944,7 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
                 else:
                     print(f"SCORE SKIP [{idx}] {username} — all download methods failed")
 
-            detections.append({
+            base_detection = {
                 "platform":      PLATFORM_DISPLAY[platform],
                 "username":      username,
                 "publishedDate": published_date,
@@ -817,7 +961,15 @@ def fetch_and_score(dataset_id, platform, brand, logo_path, apify_token):
                 "aiReasoning":   "",
                 "description":   caption[:120] + "…" if len(caption) > 120 else caption,
                 "fullCaption":   caption,
-            })
+                # dedup defaults (filled by db_check_and_record_seen)
+                "isNew":              True,
+                "timesSeen":          1,
+                "sameCreativeAccounts": [],
+                "accountFrequency":   1,
+            }
+            # Run deduplication check
+            detection = db_check_and_record_seen(base_detection)
+            detections.append(detection)
         except Exception as e:
             print(f"ITEM ERROR [{platform}] idx={idx}:", e)
 
@@ -874,6 +1026,7 @@ def nav_html(active="dashboard"):
         ("dashboard", "/dashboard",  "Dashboard"),
         ("history",   "/history",    "Scan History"),
         ("cases",     "/cases",      "🚨 Verified Cases"),
+        ("dedup",     "/dedup",      "🔁 Deduplication"),
         ("offenders", "/offenders",  "Repeat Offenders"),
     ]
     parts = []
@@ -1162,7 +1315,18 @@ def scan(brand: str, platform: str = "instagram"):
             else:
                 region_info = '<span style="font-size:11px;color:#999">no region located</span>'
 
-            is_case   = d["postUrl"] in all_case_urls
+            # Dedup badge
+            if d.get("isNew"):
+                dedup_badge = '<span style="background:#d1fae5;color:#065f46;font-size:11px;padding:2px 7px;border-radius:99px;font-weight:600">🆕 New</span>'
+            else:
+                times = d.get("timesSeen", 1)
+                dedup_badge = f'<span style="background:#fef3c7;color:#92400e;font-size:11px;padding:2px 7px;border-radius:99px;font-weight:600">👁 Seen {times}×</span>'
+
+            # Account frequency badge
+            freq = d.get("accountFrequency", 1)
+            freq_badge = (f'<span style="background:#ffe4e6;color:#9f1239;font-size:11px;'
+                         f'padding:2px 7px;border-radius:99px;font-weight:600">🔁 {freq} posts</span>'
+                         if freq > 1 else "")
 
             mark_data = json.dumps({
                 "detectedBrand": d["detectedBrand"],
@@ -1198,8 +1362,8 @@ def scan(brand: str, platform: str = "instagram"):
 
             rows += f"""<tr id="row-{idx}">
               <td>{d['platform']}</td>
-              <td><strong>{d['username']}</strong></td>
-              <td style="white-space:nowrap">{d['publishedDate']}</td>
+              <td><strong>{d['username']}</strong><br>{freq_badge}</td>
+              <td style="white-space:nowrap">{d['publishedDate']}<br>{dedup_badge}</td>
               <td><span style="color:#0d6efd;font-weight:600">{d['detectedBrand']}</span></td>
               <td style="font-size:12px">{d['description']}</td>
               <td style="font-size:12px;color:#666">
@@ -1236,6 +1400,8 @@ def scan(brand: str, platform: str = "instagram"):
   <div class="scard"><div class="num" style="color:#fd7e14">{medium}</div><div class="lbl">Medium Risk</div></div>
   <div class="scard"><div class="num" style="color:#198754">{low}</div><div class="lbl">Low Risk</div></div>
   <div class="scard"><div class="num">{avg}%</div><div class="lbl">Avg Score</div></div>
+  <div class="scard"><div class="num" style="color:#065f46">{sum(1 for d in detections if d.get('isNew'))}</div><div class="lbl">🆕 New</div></div>
+  <div class="scard"><div class="num" style="color:#92400e">{sum(1 for d in detections if not d.get('isNew'))}</div><div class="lbl">👁 Already Seen</div></div>
 </div>
 
 <div class="chart-wrap">
@@ -1633,6 +1799,79 @@ def cases_export(brand: str = ""):
         filename=f"verified_cases_{label}_{ts}.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+# ── Deduplication Page ──────────────────
+
+@app.get("/dedup", response_class=HTMLResponse)
+def dedup_page(brand: str = ""):
+    stats = db_get_dedup_stats(brand=brand)
+
+    brand_opts = '<option value="">All Brands</option>' + "".join(
+        f'<option value="{b}" {"selected" if b == brand else ""}>{b}</option>'
+        for b in BRANDS
+    )
+
+    top_rows = ""
+    for a in stats["top_accounts"]:
+        risk_color = "#dc3545" if a["max_score"] >= 65 else "#fd7e14" if a["max_score"] >= 35 else "#198754"
+        top_rows += f"""<tr>
+          <td><strong>{a['username']}</strong></td>
+          <td>{a['brand']}</td>
+          <td>{a['platform']}</td>
+          <td style="font-weight:700">{a['post_count']}</td>
+          <td>{a['total_seen']}</td>
+          <td style="color:{risk_color};font-weight:600">{a['max_score']}%</td>
+        </tr>"""
+
+    empty = '<tr><td colspan="6" style="color:#999;padding:20px;text-align:center">No data yet. Run scans to build deduplication history.</td></tr>'
+
+    return f"""<!DOCTYPE html><html><head><title>Deduplication</title>
+<style>{BASE_CSS}</style></head><body><div class="page">
+<h1>🔁 Deduplication & Intelligence</h1>
+<p class="sub">Track repeat content, serial abusers, and same creatives reposted across accounts</p>
+{nav_html("dedup")}
+
+<div class="card">
+  <form method="get" style="display:flex;gap:10px;align-items:center">
+    <select name="brand">{brand_opts}</select>
+    <button type="submit" class="btn btn-blue">Filter</button>
+  </form>
+</div>
+
+<div class="scards">
+  <div class="scard">
+    <div class="num">{stats['total_unique_posts']}</div>
+    <div class="lbl">Unique Posts Tracked</div>
+  </div>
+  <div class="scard">
+    <div class="num" style="color:#065f46">{stats['new_posts']}</div>
+    <div class="lbl">🆕 First-Time Posts</div>
+  </div>
+  <div class="scard">
+    <div class="num" style="color:#92400e">{stats['repeat_posts']}</div>
+    <div class="lbl">👁 Repeat Posts</div>
+  </div>
+</div>
+
+<div class="banner banner-info">
+  Posts marked <strong>👁 Seen N×</strong> have appeared in previous scans.
+  Focus your review on <strong>🆕 New</strong> posts — already-seen ones were reviewed before.
+  Accounts appearing repeatedly across scans are your highest-priority abuse targets.
+</div>
+
+<div class="card">
+  <h2>Most Active Accounts</h2>
+  <p>Accounts appearing most frequently across all your scans — highest risk of serial abuse.</p>
+  <table style="margin-top:12px">
+    <tr>
+      <th>Username</th><th>Brand</th><th>Platform</th>
+      <th>Unique Posts</th><th>Total Appearances</th><th>Max Score</th>
+    </tr>
+    {top_rows if top_rows else empty}
+  </table>
+</div>
+
+</div></body></html>"""
 
 # ── Repeat Offenders (v2.1.5 groundwork) ─
 
