@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+\from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from datetime import datetime
@@ -513,22 +513,22 @@ def now_ts():
 
 BRANDS = {
     "ICICI":         {
-        "instagram": {"task": "extravagant_eagle/instagram-monitor-icici",   "dataset": "PATavqgLW7SsQhtH1"},
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-icici",        "dataset": "sSCJjFGtgJpqSo9sI"},
         "facebook":  {"task": "", "dataset": ""},
         "linkedin":  {"task": "", "dataset": ""},
     },
     "Groww":         {
-        "instagram": {"task": "extravagant_eagle/instagram-monitor-groww",        "dataset": "E5X98iyKXmjN0WJBd"},
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-groww",        "dataset": "WPq3yhM2gIoDPF5CX"},
         "facebook":  {"task": "", "dataset": ""},
         "linkedin":  {"task": "", "dataset": ""},
     },
     "Motilal Oswal": {
-        "instagram": {"task": "extravagant_eagle/instagram-monitor-motilaloswal", "dataset": "DeK7uR4YafleAnnXG"},
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-motilaloswal", "dataset": "MEHAnrFQNcwaEOTGE"},
         "facebook":  {"task": "", "dataset": ""},
         "linkedin":  {"task": "", "dataset": ""},
     },
     "Tata Capital":  {
-        "instagram": {"task": "extravagant_eagle/instagram-monitor-tatacapital",  "dataset": "985UpuFr2a5EnnSal"},
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-tatacapital",  "dataset": "qMnjTu2fmbB6LtgTk"},
         "facebook":  {"task": "", "dataset": ""},
         "linkedin":  {"task": "", "dataset": ""},
     },
@@ -538,17 +538,17 @@ BRANDS = {
         "linkedin":  {"task": "", "dataset": ""},
     },
     "Upstox":        {
-        "instagram": {"task": "extravagant_eagle/instagram-monitor-upstox",       "dataset": "JpjzemyvarleuBtRV"},
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-upstox",       "dataset": "dXL2YkjzqYw6lx4Bf"},
         "facebook":  {"task": "", "dataset": ""},
         "linkedin":  {"task": "", "dataset": ""},
     },
     "SBI":           {
-        "instagram": {"task": "extravagant_eagle/instagram-monitor-sbi",          "dataset": "sYb8wItw9rP48Hb88"},
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-sbi",          "dataset": "Vhn0MCDcYiUE15NMg"},
         "facebook":  {"task": "", "dataset": ""},
         "linkedin":  {"task": "", "dataset": ""},
     },
     "Anand Rathi":   {
-        "instagram": {"task": "extravagant_eagle/instagram-monitor-anand-rathi",  "dataset": "zzkpFEaglOX96YtKE"},
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-anand-rathi",  "dataset": "DiSUdnm4Oak6MckNB"},
         "facebook":  {"task": "", "dataset": ""},
         "linkedin":  {"task": "", "dataset": ""},
     },
@@ -556,29 +556,29 @@ BRANDS = {
 
 def get_dataset_id(brand: str, platform: str, apify_token: str) -> str:
     """
-    Auto-fetches the latest dataset ID from the Apify task's last run.
+    Auto-fetches the latest dataset ID from the Apify task's last successful run.
     Falls back to the hardcoded dataset ID if the task fetch fails.
-    This means after every scheduled Apify run, fresh data is used automatically.
     """
-    config = BRANDS.get(brand, {}).get(platform, {})
-    task   = config.get("task", "")
+    config   = BRANDS.get(brand, {}).get(platform, {})
+    task     = config.get("task", "").replace("/", "~")  # API uses ~ not /
     fallback = config.get("dataset", "")
 
     if not task or not apify_token:
         return fallback
 
     try:
-        url = (f"https://api.apify.com/v2/actor-tasks/{task}/runs/last"
-               f"?token={apify_token}&status=SUCCEEDED")
+        # Get last successful run of the task
+        url = (f"https://api.apify.com/v2/actor-tasks/{task}/runs"
+               f"?token={apify_token}&status=SUCCEEDED&limit=1&desc=1")
         r = requests.get(url, timeout=10)
         if r.status_code == 200:
-            data       = r.json().get("data", {})
-            dataset_id = data.get("defaultDatasetId", "")
-            if dataset_id:
-                print(f"DATASET AUTO [{brand}/{platform}] → {dataset_id}")
-                return dataset_id
-            else:
-                print(f"DATASET AUTO [{brand}/{platform}] — no datasetId in response, using fallback")
+            items = r.json().get("data", {}).get("items", [])
+            if items:
+                dataset_id = items[0].get("defaultDatasetId", "")
+                if dataset_id:
+                    print(f"DATASET AUTO [{brand}/{platform}] → {dataset_id}")
+                    return dataset_id
+            print(f"DATASET AUTO [{brand}/{platform}] — no runs found, using fallback {fallback}")
         else:
             print(f"DATASET AUTO [{brand}/{platform}] — HTTP {r.status_code}, using fallback")
     except Exception as e:
@@ -606,22 +606,30 @@ BRAND_LOGOS = {
 
 def get_effective_logo(brand=None):
     """
-    Returns the best available logo path:
-    1. Uploaded logo (from /tmp) — user's custom upload, highest priority
-    2. Bundled brand logo (from logos/ folder) — tries all common extensions
-    3. None — no logo configured
+    Returns the correct logo path for the brand being scanned.
+    Priority:
+    1. Bundled brand logo from logos/ folder (exact filename match)
+    2. Uploaded logo from /tmp (only if no bundled logo exists)
+    3. None
     """
+    if brand and brand in BRAND_LOGOS:
+        base = BRAND_LOGOS[brand]
+        # base is already the full stem e.g. "logos/motilal_oswal"
+        # Try extensions in order — stop at first match
+        for ext in [".png", ".jpg", ".jpeg", ".webp"]:
+            candidate = base + ext
+            if os.path.exists(candidate):
+                print(f"LOGO [{brand}] — using bundled: {candidate}")
+                return candidate
+        print(f"LOGO [{brand}] — bundled not found at {base}.*")
+
+    # Fall back to uploaded logo
     uploaded = get_logo_path()
     if uploaded:
+        print(f"LOGO [{brand}] — using uploaded: {uploaded}")
         return uploaded
-    if brand and brand in BRAND_LOGOS:
-        base = BRAND_LOGOS[brand]          # e.g. "logos/icici.png"
-        stem = os.path.splitext(base)[0]   # e.g. "logos/icici"
-        for ext in [".png", ".jpg", ".jpeg", ".webp"]:
-            candidate = stem + ext
-            if os.path.exists(candidate):
-                print(f"LOGO FALLBACK — using bundled logo: {candidate}")
-                return candidate
+
+    print(f"LOGO [{brand}] — no logo found")
     return None
 
 RISK_COLOR = {"High": "#dc3545", "Medium": "#fd7e14", "Low": "#198754"}
