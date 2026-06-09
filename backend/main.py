@@ -512,15 +512,79 @@ def now_ts():
 # ─────────────────────────────────────────
 
 BRANDS = {
-    "ICICI":         {"instagram": "PATavqgLW7SsQhtH1", "facebook": "", "linkedin": ""},
-    "Groww":         {"instagram": "E5X98iyKXmjN0WJBd", "facebook": "", "linkedin": ""},
-    "Motilal Oswal": {"instagram": "DeK7uR4YafleAnnXG", "facebook": "", "linkedin": ""},
-    "Tata Capital":  {"instagram": "985UpuFr2a5EnnSal", "facebook": "", "linkedin": ""},
-    "Zerodha":       {"instagram": "aeZlx2bavuSezbBsd", "facebook": "", "linkedin": ""},
-    "Upstox":        {"instagram": "JpjzemyvarleuBtRV", "facebook": "", "linkedin": ""},
-    "SBI":           {"instagram": "sYb8wItw9rP48Hb88", "facebook": "", "linkedin": ""},
-    "Anand Rathi":   {"instagram": "zzkpFEaglOX96YtKE", "facebook": "", "linkedin": ""},
+    "ICICI":         {
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-icici",   "dataset": "PATavqgLW7SsQhtH1"},
+        "facebook":  {"task": "", "dataset": ""},
+        "linkedin":  {"task": "", "dataset": ""},
+    },
+    "Groww":         {
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-groww",        "dataset": "E5X98iyKXmjN0WJBd"},
+        "facebook":  {"task": "", "dataset": ""},
+        "linkedin":  {"task": "", "dataset": ""},
+    },
+    "Motilal Oswal": {
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-motilaloswal", "dataset": "DeK7uR4YafleAnnXG"},
+        "facebook":  {"task": "", "dataset": ""},
+        "linkedin":  {"task": "", "dataset": ""},
+    },
+    "Tata Capital":  {
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-tatacapital",  "dataset": "985UpuFr2a5EnnSal"},
+        "facebook":  {"task": "", "dataset": ""},
+        "linkedin":  {"task": "", "dataset": ""},
+    },
+    "Zerodha":       {
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-zerodha",      "dataset": "aeZlx2bavuSezbBsd"},
+        "facebook":  {"task": "", "dataset": ""},
+        "linkedin":  {"task": "", "dataset": ""},
+    },
+    "Upstox":        {
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-upstox",       "dataset": "JpjzemyvarleuBtRV"},
+        "facebook":  {"task": "", "dataset": ""},
+        "linkedin":  {"task": "", "dataset": ""},
+    },
+    "SBI":           {
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-sbi",          "dataset": "sYb8wItw9rP48Hb88"},
+        "facebook":  {"task": "", "dataset": ""},
+        "linkedin":  {"task": "", "dataset": ""},
+    },
+    "Anand Rathi":   {
+        "instagram": {"task": "extravagant_eagle/instagram-monitor-anand-rathi",  "dataset": "zzkpFEaglOX96YtKE"},
+        "facebook":  {"task": "", "dataset": ""},
+        "linkedin":  {"task": "", "dataset": ""},
+    },
 }
+
+def get_dataset_id(brand: str, platform: str, apify_token: str) -> str:
+    """
+    Auto-fetches the latest dataset ID from the Apify task's last run.
+    Falls back to the hardcoded dataset ID if the task fetch fails.
+    This means after every scheduled Apify run, fresh data is used automatically.
+    """
+    config = BRANDS.get(brand, {}).get(platform, {})
+    task   = config.get("task", "")
+    fallback = config.get("dataset", "")
+
+    if not task or not apify_token:
+        return fallback
+
+    try:
+        url = (f"https://api.apify.com/v2/actor-tasks/{task}/runs/last"
+               f"?token={apify_token}&status=SUCCEEDED")
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            data       = r.json().get("data", {})
+            dataset_id = data.get("defaultDatasetId", "")
+            if dataset_id:
+                print(f"DATASET AUTO [{brand}/{platform}] → {dataset_id}")
+                return dataset_id
+            else:
+                print(f"DATASET AUTO [{brand}/{platform}] — no datasetId in response, using fallback")
+        else:
+            print(f"DATASET AUTO [{brand}/{platform}] — HTTP {r.status_code}, using fallback")
+    except Exception as e:
+        print(f"DATASET AUTO [{brand}/{platform}] — error: {e}, using fallback")
+
+    return fallback
 
 PLATFORMS = ["instagram", "facebook", "linkedin"]
 PLATFORM_DISPLAY = {"instagram": "Instagram", "facebook": "Facebook", "linkedin": "LinkedIn"}
@@ -856,7 +920,7 @@ def debug_post(brand: str = "ICICI", platform: str = "instagram"):
     APIFY_TOKEN = os.getenv("APIFY_TOKEN")
     if not APIFY_TOKEN:
         return {"error": "Missing APIFY_TOKEN"}
-    dataset_id = BRANDS.get(brand, {}).get(platform, "")
+    dataset_id = get_dataset_id(brand, platform, APIFY_TOKEN)
     if not dataset_id:
         return {"error": "No dataset configured"}
     url  = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_TOKEN}&limit=1"
@@ -1047,11 +1111,11 @@ def scan(brand: str, platform: str = "instagram"):
     if platform not in PLATFORMS:
         return f"<h2>Unknown platform: {platform}</h2>"
 
-    dataset_id = BRANDS[brand].get(platform, "")
+    dataset_id = get_dataset_id(brand, platform, APIFY_TOKEN)
     if not dataset_id:
         return f"""<!DOCTYPE html><html><head><style>{BASE_CSS}</style></head><body><div class="page">
         <div class="banner banner-warn">No {PLATFORM_DISPLAY[platform]} dataset configured for {brand} yet.
-        Add the Apify dataset ID to the BRANDS config in main.py.</div>
+        Add the Apify task name to the BRANDS config in main.py.</div>
         <a class="btn btn-gray" href="/dashboard">← Dashboard</a></div></body></html>"""
 
     logo_path = get_effective_logo(brand)
@@ -1643,7 +1707,7 @@ def export_excel(brand: str, platform: str = "instagram", scan_id: str = ""):
         else:
             return {"error": "Scan ID not found"}
     else:
-        dataset_id = BRANDS[brand].get(platform, "")
+        dataset_id = get_dataset_id(brand, platform, APIFY_TOKEN)
         if not dataset_id:
             return {"error": f"No {platform} dataset for {brand}"}
         detections, _ = fetch_and_score(dataset_id, platform, brand, logo_path, APIFY_TOKEN)
