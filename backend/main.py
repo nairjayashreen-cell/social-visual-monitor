@@ -47,7 +47,7 @@ def make_token(password: str) -> str:
     secret = os.getenv("APP_SECRET", "default-secret-change-me")
     return hashlib.sha256(f"{password}:{secret}".encode()).hexdigest()
 
-def is_authenticated(auth_token: str = Cookie(default=None)) -> bool:
+def is_authenticated() -> bool:
     pwd = get_app_password()
     if not pwd:
         return True   # no password set → open access
@@ -1216,7 +1216,6 @@ def nav_html(active="dashboard"):
     for key, href, label in links:
         cls = 'class="active"' if key == active else ""
         parts.append(f'<a href="{href}" {cls}>{label}</a>')
-    parts.append('<a href="/logout" style="margin-left:auto;color:#dc3545">Sign Out</a>')
     return '<div class="nav">' + "".join(parts) + "</div>"
 
 # ─────────────────────────────────────────
@@ -1305,9 +1304,7 @@ def auto_scan_endpoint(secret: str = "", brands: str = ""):
 # ── Automation Settings ──────────────────
 
 @app.get("/settings", response_class=HTMLResponse)
-def settings_page(auth_token: str = Cookie(default=None), ):
-    if not is_authenticated(auth_token):
-        return RedirectResponse("/login", status_code=303)
+def settings_page():
     cfg = get_automation_cfg()
     brand_checkboxes = ""
     for b in BRANDS:
@@ -1607,9 +1604,7 @@ def logo_status():
 # ── Dashboard ───────────────────────────
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(auth_token: str = Cookie(default=None),):
-    if not is_authenticated(auth_token):
-        return RedirectResponse("/login", status_code=303)
+def dashboard():
     logo_path = get_logo_path()
     logo_filename = os.path.basename(logo_path) if logo_path else None
 
@@ -1702,9 +1697,7 @@ async function uploadLogo() {{
 # ── Scan ────────────────────────────────
 
 @app.get("/scan", response_class=HTMLResponse)
-def scan(brand: str, platform: str = "instagram", auth_token: str = Cookie(default=None)):
-    if not is_authenticated(auth_token):
-        return RedirectResponse("/login", status_code=303)
+def scan(brand: str, platform: str = "instagram"):
     APIFY_TOKEN = os.getenv("APIFY_TOKEN")
     if not APIFY_TOKEN:
         return "<h2>Missing APIFY_TOKEN</h2>"
@@ -1963,9 +1956,7 @@ async function unmarkCase(btn, postUrl, brand) {{
 # ── Scan History List ────────────────────
 
 @app.get("/history", response_class=HTMLResponse)
-def history_list(auth_token: str = Cookie(default=None), ):
-    if not is_authenticated(auth_token):
-        return RedirectResponse("/login", status_code=303)
+def history_list():
     scans = db_get_scans(limit=100)
 
     rows = ""
@@ -2002,9 +1993,7 @@ def history_list(auth_token: str = Cookie(default=None), ):
 # ── Scan History Detail ──────────────────
 
 @app.get("/history/{scan_id}", response_class=HTMLResponse)
-def history_detail(scan_id: str, auth_token: str = Cookie(default=None)):
-    if not is_authenticated(auth_token):
-        return RedirectResponse("/login", status_code=303)
+def history_detail(scan_id: str):
     scan, detections = db_get_scan(scan_id)
     if not scan:
         return "<h2>Scan not found</h2>"
@@ -2077,9 +2066,7 @@ new Chart(document.getElementById('riskChart'), {{
 # ── Verified Cases Page ─────────────────
 
 @app.get("/cases", response_class=HTMLResponse)
-def cases_page(auth_token: str = Cookie(default=None), brand: str = ""):
-    if not is_authenticated(auth_token):
-        return RedirectResponse("/login", status_code=303)
+def cases_page(brand: str = ""):
     cases = db_get_cases(brand=brand)
 
     brand_opts = '<option value="">All Brands</option>' + "".join(
@@ -2251,9 +2238,7 @@ def cases_export(brand: str = ""):
 # ── Deduplication Page ──────────────────
 
 @app.get("/dedup", response_class=HTMLResponse)
-def dedup_page(auth_token: str = Cookie(default=None), brand: str = ""):
-    if not is_authenticated(auth_token):
-        return RedirectResponse("/login", status_code=303)
+def dedup_page(brand: str = ""):
     stats = db_get_dedup_stats(brand=brand)
 
     brand_opts = '<option value="">All Brands</option>' + "".join(
@@ -2326,9 +2311,7 @@ def dedup_page(auth_token: str = Cookie(default=None), brand: str = ""):
 # ── Repeat Offenders (v2.1.5 groundwork) ─
 
 @app.get("/offenders", response_class=HTMLResponse)
-def repeat_offenders(auth_token: str = Cookie(default=None), brand: str = ""):
-    if not is_authenticated(auth_token):
-        return RedirectResponse("/login", status_code=303)
+def repeat_offenders(brand: str = ""):
     offenders = db_repeat_offenders(brand=brand or None, limit=50)
 
     brand_opts = '<option value="">All Brands</option>' + "".join(
@@ -2377,9 +2360,7 @@ def repeat_offenders(auth_token: str = Cookie(default=None), brand: str = ""):
 # ── Export Excel  (v1.9 – Advanced) ─────
 
 @app.get("/export")
-def export_excel(brand: str, platform: str = "instagram", scan_id: str = "", auth_token: str = Cookie(default=None)):
-    if not is_authenticated(auth_token):
-        return RedirectResponse("/login", status_code=303)
+def export_excel(brand: str, platform: str = "instagram", scan_id: str = ""):
 
     APIFY_TOKEN = os.getenv("APIFY_TOKEN")
     if not APIFY_TOKEN:
