@@ -1,6 +1,6 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Request, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests, os, json, sqlite3, uuid
@@ -25,11 +25,52 @@ app.add_middleware(
 # ─────────────────────────────────────────
 # PATHS
 # ─────────────────────────────────────────
-LOGO_STATE_FILE = "/tmp/logo_state.json"
-UPLOAD_DIR      = "/tmp/uploads"
-TEMP_IMAGE      = "/tmp/temp_image.jpg"
-DB_PATH         = "/tmp/scan_history.db"
-EXPORT_DIR      = "/tmp/exports"
+LOGO_STATE_FILE    = "/tmp/logo_state.json"
+UPLOAD_DIR         = "/tmp/uploads"
+TEMP_IMAGE         = "/tmp/temp_image.jpg"
+DB_PATH            = "/tmp/scan_history.db"
+EXPORT_DIR         = "/tmp/exports"
+AUTOMATION_CFG     = "/tmp/automation_config.json"
+
+# ─────────────────────────────────────────
+# AUTH  — simple cookie-based password
+# Set APP_PASSWORD env var on Render
+# ─────────────────────────────────────────
+AUTH_COOKIE  = "vm_auth"
+SESSION_TTL  = 60 * 60 * 24 * 7   # 7 days
+
+def get_app_password() -> str:
+    return os.getenv("APP_PASSWORD", "")
+
+def make_token(password: str) -> str:
+    """Sign the password with a server secret so tokens can't be forged."""
+    secret = os.getenv("APP_SECRET", "default-secret-change-me")
+    return hashlib.sha256(f"{password}:{secret}".encode()).hexdigest()
+
+def is_authenticated(auth_token: str = Cookie(default=None)) -> bool:
+    pwd = get_app_password()
+    if not pwd:
+        return True   # no password set → open access
+    if not auth_token:
+        return False
+    return auth_token == make_token(pwd)
+
+LOGIN_CSS = """
+body{margin:0;font-family:Arial,sans-serif;background:#f0f2f5;
+     display:flex;align-items:center;justify-content:center;min-height:100vh}
+.box{background:#fff;border-radius:12px;padding:40px 48px;
+     box-shadow:0 4px 24px rgba(0,0,0,.10);width:100%;max-width:360px}
+h1{margin:0 0 8px;font-size:22px;color:#1a1a2e}
+p{margin:0 0 24px;font-size:13px;color:#666}
+input{width:100%;box-sizing:border-box;padding:11px 14px;font-size:14px;
+      border:1px solid #ddd;border-radius:6px;margin-bottom:14px;outline:none}
+input:focus{border-color:#0d6efd}
+button{width:100%;padding:11px;background:#0d6efd;color:#fff;
+       border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer}
+button:hover{background:#0b5ed7}
+.err{color:#dc3545;font-size:13px;margin-bottom:12px;display:none}
+.err.show{display:block}
+"""
 
 # ─────────────────────────────────────────
 # DATABASE  (v1.8 – Scan History)
@@ -370,6 +411,148 @@ def db_get_dedup_stats(brand: str = "") -> dict:
         "new_posts":          total - repeat,
         "top_accounts":       [dict(r) for r in top_accounts],
     }
+
+# ─────────────────────────────────────────
+# AUTOMATION CONFIG  v2.2
+# ─────────────────────────────────────────
+
+DEFAULT_AUTOMATION_CFG = {
+    "email_enabled":    False,
+    "email_to":         "",
+    "email_from":       "",
+    "smtp_host":        "smtp.gmail.com",
+    "smtp_port":        587,
+    "smtp_password":    "",
+    "alert_threshold":  "High",       # High / Medium / any
+    "scan_brands":      [],           # brands to auto-scan
+    "scan_platform":    "instagram",
+    "last_auto_scan":   "",
+}
+
+def get_automation_cfg() -> dict:
+    try:
+        with open(AUTOMATION_CFG) as f:
+            cfg = json.load(f)
+            # Fill any missing keys with defaults
+            return {**DEFAULT_AUTOMATION_CFG, **cfg}
+    except Exception:
+        return dict(DEFAULT_AUTOMATION_CFG)
+
+def save_automation_cfg(cfg: dict):
+    with open(AUTOMATION_CFG, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+def send_alert_email(cfg: dict, brand: str, platform: str,
+                     high_detections: list) -> bool:
+    """
+    Sends a plain-text email alert for high-risk detections.
+    Uses Gmail SMTP (or any SMTP server).
+    """
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    if not cfg.get("email_enabled") or not cfg.get("email_to"):
+        return False
+
+    try:
+        subject = (f"🚨 Brand Alert: {len(high_detections)} High-Risk Posts "
+                   f"Detected for {brand} on {platform.title()}")
+
+        rows = ""
+        for d in high_detections[:10]:  # max 10 in email
+            rows += (
+                f"\n• @{d['username']} — Score: {d['matchScore']}% — {d['risk']}\n"
+                f"  {d['description'][:100]}\n"
+                f"  {d['postUrl']}\n"
+            )
+
+        body = f"""Brand Monitoring Alert
+{'='*50}
+Brand:    {brand}
+Platform: {platform.title()}
+Scan:     {now_ist()}
+High-Risk Posts Found: {len(high_detections)}
+
+TOP DETECTIONS:
+{rows}
+
+View full report:
+https://social-visual-monitor.onrender.com/scan?brand={brand}&platform={platform}
+
+---
+AI Visual Threat Monitoring
+"""
+        msg = MIMEMultipart()
+        msg["From"]    = cfg["email_from"]
+        msg["To"]      = cfg["email_to"]
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        with smtplib.SMTP(cfg["smtp_host"], int(cfg["smtp_port"])) as server:
+            server.starttls()
+            server.login(cfg["email_from"], cfg["smtp_password"])
+            server.send_message(msg)
+
+        print(f"EMAIL SENT — {brand} alert to {cfg['email_to']}")
+        return True
+
+    except Exception as e:
+        print(f"EMAIL ERROR: {e}")
+        return False
+
+def run_auto_scan(brand: str, platform: str) -> dict:
+    """
+    Runs a full scan for a brand/platform and returns summary.
+    Called by the /auto-scan endpoint (triggered by Render Cron).
+    """
+    APIFY_TOKEN = os.getenv("APIFY_TOKEN", "")
+    if not APIFY_TOKEN:
+        return {"error": "Missing APIFY_TOKEN"}
+
+    logo_path  = get_effective_logo(brand)
+    dataset_id = get_dataset_id(brand, platform, APIFY_TOKEN)
+
+    if not dataset_id:
+        return {"error": f"No dataset for {brand}/{platform}"}
+
+    try:
+        detections, total = fetch_and_score(
+            dataset_id, platform, brand, logo_path, APIFY_TOKEN
+        )
+        detections.sort(key=lambda x: x["matchScore"], reverse=True)
+        scan_id = db_save_scan(brand, platform, detections, logo_path)
+
+        high   = [d for d in detections if d["risk"] == "High"]
+        medium = [d for d in detections if d["risk"] == "Medium"]
+        avg    = round(sum(d["matchScore"] for d in detections) / len(detections), 2) if detections else 0
+
+        # Send alert if high-risk posts found
+        cfg = get_automation_cfg()
+        email_sent = False
+        if high and cfg.get("email_enabled"):
+            threshold = cfg.get("alert_threshold", "High")
+            alert_dets = high if threshold == "High" else (high + medium)
+            email_sent = send_alert_email(cfg, brand, platform, alert_dets)
+
+        # Update last scan time
+        cfg["last_auto_scan"] = now_ist()
+        save_automation_cfg(cfg)
+
+        return {
+            "scan_id":    scan_id,
+            "brand":      brand,
+            "platform":   platform,
+            "total":      len(detections),
+            "high":       len(high),
+            "medium":     len(medium),
+            "avg_score":  avg,
+            "email_sent": email_sent,
+            "scanned_at": now_ist(),
+        }
+    except Exception as e:
+        print(f"AUTO-SCAN ERROR [{brand}]: {e}")
+        return {"error": str(e)}
 
 def get_logo_path():
     try:
@@ -1033,6 +1216,7 @@ def nav_html(active="dashboard"):
     for key, href, label in links:
         cls = 'class="active"' if key == active else ""
         parts.append(f'<a href="{href}" {cls}>{label}</a>')
+    parts.append('<a href="/logout" style="margin-left:auto;color:#dc3545">Sign Out</a>')
     return '<div class="nav">' + "".join(parts) + "</div>"
 
 # ─────────────────────────────────────────
@@ -1041,7 +1225,260 @@ def nav_html(active="dashboard"):
 
 @app.get("/")
 def home():
-    return {"status": "AI Visual Threat Monitoring v2.0"}
+    return {"status": "AI Visual Threat Monitoring v2.2"}
+
+# ── Auth routes ──────────────────────────
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(error: str = ""):
+    err_html = f'<div class="err show">{error}</div>' if error else '<div class="err"></div>'
+    return f"""<!DOCTYPE html><html><head><title>Login — Brand Monitor</title>
+<style>{LOGIN_CSS}</style></head><body>
+<div class="box">
+  <h1>🛡 Brand Monitor</h1>
+  <p>AI Visual Threat Monitoring</p>
+  {err_html}
+  <form method="post" action="/login">
+    <input type="password" name="password" placeholder="Enter password" autofocus required>
+    <button type="submit">Sign In</button>
+  </form>
+</div>
+</body></html>"""
+
+@app.post("/login")
+async def login_submit(request: Request, response: Response):
+    form     = await request.form()
+    password = form.get("password", "")
+    expected = get_app_password()
+
+    if not expected or password == expected:
+        token = make_token(password if expected else "")
+        resp  = RedirectResponse("/dashboard", status_code=303)
+        resp.set_cookie(
+            AUTH_COOKIE, token,
+            max_age=SESSION_TTL,
+            httponly=True,
+            samesite="lax",
+        )
+        return resp
+    return RedirectResponse("/login?error=Incorrect+password", status_code=303)
+
+@app.get("/logout")
+def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(AUTH_COOKIE)
+    return resp
+
+# ── Auto-Scan (called by Render Cron) ────
+
+@app.get("/auto-scan")
+def auto_scan_endpoint(secret: str = "", brands: str = ""):
+    """
+    Triggered by Render Cron job.
+    Protect with CRON_SECRET env var so only Render can call it.
+    ?brands=ICICI,Groww,SBI  (comma-separated, or empty = all configured brands)
+    """
+    CRON_SECRET = os.getenv("CRON_SECRET", "")
+    if CRON_SECRET and secret != CRON_SECRET:
+        return {"error": "Unauthorised"}
+
+    cfg          = get_automation_cfg()
+    scan_brands  = [b.strip() for b in brands.split(",")] if brands else cfg.get("scan_brands", [])
+    platform     = cfg.get("scan_platform", "instagram")
+
+    if not scan_brands:
+        scan_brands = list(BRANDS.keys())
+
+    results = []
+    for brand in scan_brands:
+        if brand in BRANDS:
+            result = run_auto_scan(brand, platform)
+            results.append(result)
+            print(f"AUTO-SCAN DONE: {brand} — {result}")
+
+    return {
+        "scanned":    len(results),
+        "results":    results,
+        "triggered":  now_ist(),
+    }
+
+# ── Automation Settings ──────────────────
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(auth_token: str = Cookie(default=None), ):
+    if not is_authenticated(auth_token):
+        return RedirectResponse("/login", status_code=303)
+    cfg = get_automation_cfg()
+    brand_checkboxes = ""
+    for b in BRANDS:
+        checked = "checked" if b in cfg.get("scan_brands", []) else ""
+        brand_checkboxes += f"""
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px">
+          <input type="checkbox" name="scan_brands" value="{b}" {checked}> {b}
+        </label>"""
+
+    alert_opts = "".join(
+        f'<option value="{v}" {"selected" if cfg.get("alert_threshold")==v else ""}>{l}</option>'
+        for v, l in [("High","High Risk only"),("Medium","Medium + High Risk")]
+    )
+
+    cron_secret = os.getenv("CRON_SECRET", "not-set")
+    cron_url    = f"https://social-visual-monitor.onrender.com/auto-scan?secret={cron_secret}"
+
+    return f"""<!DOCTYPE html><html><head><title>Automation Settings</title>
+<style>{BASE_CSS}
+.form-group{{margin-bottom:16px}}
+.form-group label{{display:block;font-size:13px;font-weight:500;color:#444;margin-bottom:5px}}
+.form-group input[type=text],.form-group input[type=email],
+.form-group input[type=password],.form-group input[type=number]{{
+  width:100%;max-width:400px;padding:9px;font-size:13px;
+  border:1px solid #ccc;border-radius:4px}}
+.toggle{{display:flex;align-items:center;gap:10px;font-size:14px}}
+.code{{background:#f1f5f9;padding:10px 14px;border-radius:4px;
+       font-family:monospace;font-size:12px;word-break:break-all;
+       border:1px solid #e2e8f0;margin-top:8px}}
+</style></head><body><div class="page">
+<h1>⚙️ Automation Settings</h1>
+<p class="sub">Configure scheduled scans and email alerts</p>
+{nav_html()}
+
+<form action="/settings/save" method="post">
+
+  <!-- Brands to scan -->
+  <div class="card">
+    <h2>Brands to Auto-Scan</h2>
+    <p>These brands will be scanned when the scheduled cron job runs.</p>
+    {brand_checkboxes}
+    <div class="form-group" style="margin-top:12px">
+      <label>Platform</label>
+      <select name="scan_platform" style="padding:9px;font-size:13px;border:1px solid #ccc;border-radius:4px">
+        <option value="instagram" {"selected" if cfg.get("scan_platform")=="instagram" else ""}>Instagram</option>
+        <option value="facebook"  {"selected" if cfg.get("scan_platform")=="facebook"  else ""}>Facebook</option>
+        <option value="linkedin"  {"selected" if cfg.get("scan_platform")=="linkedin"  else ""}>LinkedIn</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Email Alerts -->
+  <div class="card">
+    <h2>Email Alerts</h2>
+    <p>Get notified by email when high-risk posts are detected.</p>
+
+    <div class="form-group">
+      <div class="toggle">
+        <input type="checkbox" name="email_enabled" value="1"
+               {"checked" if cfg.get("email_enabled") else ""}>
+        <span>Enable email alerts</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Alert me when risk is</label>
+      <select name="alert_threshold" style="padding:9px;font-size:13px;border:1px solid #ccc;border-radius:4px">
+        {alert_opts}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Send alerts to (your email)</label>
+      <input type="email" name="email_to" value="{cfg.get('email_to','')}">
+    </div>
+
+    <div class="form-group">
+      <label>Send alerts from (Gmail address)</label>
+      <input type="email" name="email_from" value="{cfg.get('email_from','')}">
+    </div>
+
+    <div class="form-group">
+      <label>Gmail App Password
+        <a href="https://myaccount.google.com/apppasswords" target="_blank"
+           style="font-size:11px;margin-left:6px">Get one here ↗</a>
+      </label>
+      <input type="password" name="smtp_password" value="{cfg.get('smtp_password','')}">
+      <p style="font-size:11px;color:#999;margin-top:4px">
+        Use a Gmail App Password, not your regular password.
+        Enable 2FA on Gmail first, then generate an App Password.
+      </p>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-blue">Save Settings</button>
+  <a class="btn btn-gray" href="/dashboard" style="margin-left:10px">Cancel</a>
+
+</form>
+
+<!-- Cron Setup -->
+<div class="card" style="margin-top:24px">
+  <h2>Scheduled Scan Setup (Render Cron)</h2>
+  <p style="margin-bottom:12px">
+    Set up a free Render Cron Job to run scans automatically.
+    On Render dashboard → your service → <strong>Cron Jobs</strong> → Add Cron Job.
+  </p>
+  <div class="form-group">
+    <label>Cron Schedule (every Monday at 6 AM IST = 12:30 AM UTC)</label>
+    <div class="code">30 0 * * 1</div>
+  </div>
+  <div class="form-group">
+    <label>Cron URL to call</label>
+    <div class="code">{cron_url}</div>
+  </div>
+  <p style="font-size:12px;color:#666;margin-top:8px">
+    Add <strong>CRON_SECRET</strong> to your Render environment variables with any random string
+    to prevent unauthorised access to the auto-scan endpoint.
+  </p>
+</div>
+
+<!-- Manual trigger -->
+<div class="card">
+  <h2>Run Auto-Scan Now</h2>
+  <p>Trigger a manual scan of all configured brands immediately.</p>
+  <button class="btn btn-green" onclick="runNow()">▶ Run Now</button>
+  <div id="run-result" style="margin-top:12px;font-size:13px"></div>
+</div>
+
+<script>
+async function runNow() {{
+  const btn = document.querySelector('button.btn-green');
+  const div = document.getElementById('run-result');
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
+  div.innerHTML = 'Running scans — this may take a few minutes…';
+  try {{
+    const res  = await fetch('/auto-scan?secret={cron_secret}');
+    const data = await res.json();
+    const lines = (data.results || []).map(r =>
+      r.error
+        ? `❌ ${{r.brand || '?'}}: ${{r.error}}`
+        : `✅ ${{r.brand}}: ${{r.total}} posts, ${{r.high}} high risk, avg ${{r.avg_score}}%`
+    ).join('<br>');
+    div.innerHTML = `<strong>Done!</strong> ${{data.scanned}} brands scanned.<br>${{lines}}`;
+  }} catch(e) {{
+    div.innerHTML = '❌ Error: ' + e.message;
+  }}
+  btn.disabled = false;
+  btn.textContent = '▶ Run Now';
+}}
+</script>
+</div></body></html>"""
+
+@app.post("/settings/save")
+async def settings_save(request):
+    from fastapi import Request
+    form = await request.form()
+
+    cfg = get_automation_cfg()
+    cfg["email_enabled"]   = "email_enabled" in form
+    cfg["email_to"]        = form.get("email_to", "")
+    cfg["email_from"]      = form.get("email_from", "")
+    cfg["smtp_password"]   = form.get("smtp_password", "")
+    cfg["alert_threshold"] = form.get("alert_threshold", "High")
+    cfg["scan_platform"]   = form.get("scan_platform", "instagram")
+    cfg["scan_brands"]     = form.getlist("scan_brands")
+
+    save_automation_cfg(cfg)
+
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/settings", status_code=303)
 
 # ── Case Management API ──────────────────
 
@@ -1170,7 +1607,9 @@ def logo_status():
 # ── Dashboard ───────────────────────────
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard():
+def dashboard(auth_token: str = Cookie(default=None),):
+    if not is_authenticated(auth_token):
+        return RedirectResponse("/login", status_code=303)
     logo_path = get_logo_path()
     logo_filename = os.path.basename(logo_path) if logo_path else None
 
@@ -1263,7 +1702,9 @@ async function uploadLogo() {{
 # ── Scan ────────────────────────────────
 
 @app.get("/scan", response_class=HTMLResponse)
-def scan(brand: str, platform: str = "instagram"):
+def scan(brand: str, platform: str = "instagram", auth_token: str = Cookie(default=None)):
+    if not is_authenticated(auth_token):
+        return RedirectResponse("/login", status_code=303)
     APIFY_TOKEN = os.getenv("APIFY_TOKEN")
     if not APIFY_TOKEN:
         return "<h2>Missing APIFY_TOKEN</h2>"
@@ -1340,7 +1781,8 @@ def scan(brand: str, platform: str = "instagram"):
                 "regionsFound":  d.get("regionsFound", 0),
             })
 
-            case_btn  = (
+            is_case  = d["postUrl"] in all_case_urls
+            case_btn = (
                 f'<button onclick="unmarkCase(this, \'{d["postUrl"]}\', \'{brand}\')" '
                 f'style="background:#dc3545;color:#fff;border:none;border-radius:4px;'
                 f'padding:4px 8px;font-size:11px;cursor:pointer;white-space:nowrap">'
@@ -1521,7 +1963,9 @@ async function unmarkCase(btn, postUrl, brand) {{
 # ── Scan History List ────────────────────
 
 @app.get("/history", response_class=HTMLResponse)
-def history_list():
+def history_list(auth_token: str = Cookie(default=None), ):
+    if not is_authenticated(auth_token):
+        return RedirectResponse("/login", status_code=303)
     scans = db_get_scans(limit=100)
 
     rows = ""
@@ -1558,7 +2002,9 @@ def history_list():
 # ── Scan History Detail ──────────────────
 
 @app.get("/history/{scan_id}", response_class=HTMLResponse)
-def history_detail(scan_id: str):
+def history_detail(scan_id: str, auth_token: str = Cookie(default=None)):
+    if not is_authenticated(auth_token):
+        return RedirectResponse("/login", status_code=303)
     scan, detections = db_get_scan(scan_id)
     if not scan:
         return "<h2>Scan not found</h2>"
@@ -1631,7 +2077,9 @@ new Chart(document.getElementById('riskChart'), {{
 # ── Verified Cases Page ─────────────────
 
 @app.get("/cases", response_class=HTMLResponse)
-def cases_page(brand: str = ""):
+def cases_page(auth_token: str = Cookie(default=None), brand: str = ""):
+    if not is_authenticated(auth_token):
+        return RedirectResponse("/login", status_code=303)
     cases = db_get_cases(brand=brand)
 
     brand_opts = '<option value="">All Brands</option>' + "".join(
@@ -1803,7 +2251,9 @@ def cases_export(brand: str = ""):
 # ── Deduplication Page ──────────────────
 
 @app.get("/dedup", response_class=HTMLResponse)
-def dedup_page(brand: str = ""):
+def dedup_page(auth_token: str = Cookie(default=None), brand: str = ""):
+    if not is_authenticated(auth_token):
+        return RedirectResponse("/login", status_code=303)
     stats = db_get_dedup_stats(brand=brand)
 
     brand_opts = '<option value="">All Brands</option>' + "".join(
@@ -1876,7 +2326,9 @@ def dedup_page(brand: str = ""):
 # ── Repeat Offenders (v2.1.5 groundwork) ─
 
 @app.get("/offenders", response_class=HTMLResponse)
-def repeat_offenders(brand: str = ""):
+def repeat_offenders(auth_token: str = Cookie(default=None), brand: str = ""):
+    if not is_authenticated(auth_token):
+        return RedirectResponse("/login", status_code=303)
     offenders = db_repeat_offenders(brand=brand or None, limit=50)
 
     brand_opts = '<option value="">All Brands</option>' + "".join(
@@ -1925,7 +2377,9 @@ def repeat_offenders(brand: str = ""):
 # ── Export Excel  (v1.9 – Advanced) ─────
 
 @app.get("/export")
-def export_excel(brand: str, platform: str = "instagram", scan_id: str = ""):
+def export_excel(brand: str, platform: str = "instagram", scan_id: str = "", auth_token: str = Cookie(default=None)):
+    if not is_authenticated(auth_token):
+        return RedirectResponse("/login", status_code=303)
 
     APIFY_TOKEN = os.getenv("APIFY_TOKEN")
     if not APIFY_TOKEN:
